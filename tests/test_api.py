@@ -109,7 +109,22 @@ def test_customers_due_and_chat_use_injected_components(client):
     assert chat["answer"] == "echo hi" and chat["tool_calls"][0]["name"] == "read_memory"
 
 
-def test_unwired_agent_returns_501(client):
-    del main.app.dependency_overrides[main.get_chat_handler]
+def test_get_chat_handler_is_wired_to_agent_loop(monkeypatch):
+    sentinel = object()
+    monkeypatch.setattr(main, "make_chat_handler", lambda: sentinel)   # no real LLM client is built
+    assert main.get_chat_handler() is sentinel
+
+
+def test_chat_endpoint_runs_real_agent_loop_with_fake_llm(client, tmp_path):
+    from reorderpilot.agent.loop import make_chat_handler
+    from reorderpilot.agent.tools import ToolContext
+
+    class OneAnswerLLM:
+        def complete(self, messages, tools):
+            return {"role": "assistant", "content": f"loop saw: {messages[-1]['content']}"}
+
+    ctx = ToolContext(as_of=AS_OF, db_path=tmp_path / "memory.db")
+    main.app.dependency_overrides[main.get_chat_handler] = lambda: make_chat_handler(OneAnswerLLM(), ctx)
     resp = client.post("/agent/chat", json={"session_id": "s1", "message": "hi"})
-    assert resp.status_code == 501
+    assert resp.status_code == 200
+    assert resp.json() == {"answer": "loop saw: hi", "tool_calls": [], "trace_url": None}
