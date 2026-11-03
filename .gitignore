@@ -2,7 +2,7 @@
 .env
 
 # Data (raw, processed, memory.db, LLM cache) lives in DATA_DIR, never in git
-data/
+/data/
 
 # Model artifacts: keep metrics.json (quoted by README), ignore binaries
 artifacts/*
