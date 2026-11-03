@@ -21,6 +21,7 @@ DEFAULT_API_URL = os.environ.get("REORDERPILOT_API_URL", "http://localhost:8000"
 CHAT_TIMEOUT_S = 180.0  # an agent turn can wait on the LLM rate limiter
 READ_TIMEOUT_S = 60.0  # first /predict call loads the model and transactions
 NONE_OPTION = "—"
+CHAT_HEIGHT_PX = 520
 QUICK_PROMPTS = [
     "Who should I call today?",
     "Brief me on my top due customer",
@@ -32,7 +33,10 @@ AVATARS = {"user": ":material/person:", "assistant": ":material/support_agent:"}
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-html, body, [class*="st-"], .stMarkdown, .stTextInput, .stButton button { font-family: 'Inter', sans-serif; }
+/* Text only: icons are font ligatures, so overriding their font turns them into words like "double_arrow_right". */
+html, body, .stApp, p, li, label, input, textarea, h1, h2, h3, h4, h5, h6,
+.rp-header, .rp-label { font-family: 'Inter', sans-serif; }
+[data-testid="stIconMaterial"] { font-family: 'Material Symbols Rounded' !important; }
 #MainMenu, footer { visibility: hidden; }
 .block-container { padding-top: 2rem; max-width: 1400px; }
 h1, h2, h3 { letter-spacing: -0.01em; font-weight: 600; }
@@ -250,16 +254,18 @@ def render_chat_tab() -> None:
     """Chat history (with tool accordions) on the left, last-run panel on the right."""
     left, right = st.columns([2.2, 1], gap="large")
     with left:
-        if not st.session_state.chat:
-            st.caption("Ask about due customers, a customer's briefing, or log feedback in plain language.")
-        for turn in st.session_state.chat:
-            with st.chat_message(turn["role"], avatar=AVATARS[turn["role"]]):
-                st.markdown(turn["content"])
-                if turn["role"] == "assistant":
-                    render_tool_executions(turn)
+        # Fixed-height scroll area keeps the input right under the history, whatever the right panel's height.
+        with st.container(height=CHAT_HEIGHT_PX, border=True):
+            if not st.session_state.chat:
+                st.caption("Ask about due customers, a customer's briefing, or log feedback in plain language.")
+            for turn in st.session_state.chat:
+                with st.chat_message(turn["role"], avatar=AVATARS[turn["role"]]):
+                    st.markdown(turn["content"])
+                    if turn["role"] == "assistant":
+                        render_tool_executions(turn)
+        message = st.chat_input("Ask the sales agent, e.g. Brief me on customer 16121")
     with right:
         render_last_run_panel()
-    message = st.chat_input("Ask the sales agent, e.g. Brief me on customer 16121")
     if message:
         send_message(message)
         st.rerun()
