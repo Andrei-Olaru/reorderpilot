@@ -111,3 +111,14 @@ Format per entry: context, options considered, choice, why, trade-offs.
 - **Choice:** compute values for all customers, then subtract suppressed items only for the top 3 x limit before re-sorting.
 - **Why:** one SQLite lookup per shown customer instead of per customer (~2,000). **Trade-off:** a customer ranked
   just outside 3 x limit can't move up; acceptable for a ranked call list.
+
+## D11 — UI is an HTTP-only client; Docker mounts data and model (2026-11-03)
+- **Context:** SPEC section 10 (Streamlit) and M5 (Docker). The UI could import the model/memory directly or call the API.
+- **Options:** (a) Streamlit imports `reorderpilot` and calls functions; (b) Streamlit calls the FastAPI endpoints.
+  For Docker: (c) bake data + model into the image; (d) mount `./data` and `./artifacts` as volumes.
+- **Choice:** (b) and (d). One image (`python:3.12-slim`, the version the pins were tested on) runs both services.
+  The UI imports only the `Outcome`/`Reason` types from `api/schemas.py`, so the form choices match the contract.
+- **Why:** the demo shows exactly what the API returns, and the UI can't bypass the memory policy. Data is gitignored
+  and must not be redistributed (CC BY 4.0 attribution, raw data stays out); the model is gitignored too.
+- **Trade-offs:** the UI needs the API running (it shows a clear error otherwise); a clean clone must build data
+  and train once before `docker compose up`. SPEC says Python 3.11; the image uses 3.12 to match `requirements.txt`.

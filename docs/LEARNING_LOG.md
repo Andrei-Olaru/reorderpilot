@@ -108,3 +108,23 @@
   customers" as in scope; define outcomes (declined = won't buy, asked_alternative = wants a substitute).
 - Lesson: two of my own metric bugs (unicode dash U+2011, substring product names) changed results. Always read
   a sample of raw answers before trusting an automatic metric.
+
+## D — Streamlit UI, Docker, README, architecture, demo script (2026-11-03)
+
+- **What:** `app/streamlit_app.py` has a sidebar (API status, simulated date, customers due), a **Chat** tab with the
+  tool-call panel on the right, and a **Customer memory** tab (feedback events, notes, current predictions with the
+  `suppressed` flag, and a feedback form). `Dockerfile` + `docker-compose.yml` run the API and UI as two containers.
+- **Why the UI only calls the API:** the UI never opens the model or `memory.db` itself. So what you see is exactly what
+  the agent sees, and the UI can't skip the suppression rules by accident.
+- **Streamlit reruns the whole script** on every click. Anything that must survive a click (the chat history, the
+  last tool calls) lives in `st.session_state`, a dictionary that is kept for each browser tab.
+- **Docker:** one image, two commands. **Volumes** = folders on your disk shared with the container. `./data` and
+  `./artifacts` are mounted instead of copied, because the dataset must not be redistributed and the model is trained
+  locally. Inside compose, the UI reaches the API at `http://api:8000`: Docker resolves the service name like a hostname.
+- **Healthcheck + `depends_on: service_healthy`:** the UI starts only after the API answers `/health`.
+- **Tests:** `tests/test_streamlit_app.py` runs the app headless with Streamlit's `AppTest` and replaces `httpx.request`
+  with a fake API. No server, model or LLM needed.
+- **What could go wrong:** a slow LLM turn (rate limiter) → a 180 s timeout and a readable error instead of a crash;
+  a stale `memory.db` from earlier runs makes a demo decline look "already there" (the demo script resets it).
+- **Interview Q:** "Why does the memory tab still show the declined product?" → It's flagged `suppressed` with the
+  reason, not deleted, so a reviewer can audit why it wasn't offered. The agent sees the same flag and doesn't offer it.
