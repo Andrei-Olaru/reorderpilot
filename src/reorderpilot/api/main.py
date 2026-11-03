@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
 
+from reorderpilot.agent.loop import make_chat_handler
 from reorderpilot.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -80,7 +81,7 @@ def get_chat_handler() -> ChatHandler:
     def handler(_: ChatRequest) -> ChatResponse:
         raise NotImplementedError("agent loop (M3) is not wired into the API")
 
-    return handler
+    return make_chat_handler()
 
 
 AsOf = Annotated[date, Depends(get_as_of)]
