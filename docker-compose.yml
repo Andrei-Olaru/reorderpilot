@@ -1,1 +1,34 @@
-# Placeholder. Built in M5 (SPEC section 14).
+# Run from the repo root:  docker compose up --build
+#   API -> http://localhost:8000/docs     UI -> http://localhost:8501
+# Before the first run: dataset in ./data/raw/, then build data + model (see README "Run with Docker").
+services:
+  api:
+    build: .
+    image: reorderpilot:latest
+    env_file:
+      - path: .env          # LLM_API_KEY etc.; optional so `docker compose config` works without it
+        required: false
+    environment:
+      REORDERPILOT_DATA_DIR: /data   # overrides the "./data" value copied from .env
+    volumes:
+      - ./data:/data                 # raw data, transactions.parquet, memory.db, LLM cache
+      - ./artifacts:/app/artifacts   # model.joblib + metrics.json (trained on the host or in the container)
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ui:
+    image: reorderpilot:latest
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      REORDERPILOT_API_URL: http://api:8000   # service name, resolved by Docker's internal DNS
+    command: ["streamlit", "run", "app/streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501",
+              "--server.headless=true", "--browser.gatherUsageStats=false"]
+    ports:
+      - "8501:8501"
