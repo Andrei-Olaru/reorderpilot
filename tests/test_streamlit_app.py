@@ -60,7 +60,10 @@ def test_chat_shows_answer_and_tool_calls(fake_api):
     assert not at.exception
     assert ("POST", "/agent/chat") in [(method, path) for method, path, _ in fake_api]
     assert "suppressed" in at.chat_message[1].markdown[0].value
-    assert at.expander[0].label == "1. predict_reorder"
+    tools = at.expander[0]
+    assert tools.label == "Tool executions (1)"
+    assert "predict_reorder" in tools.markdown[0].value
+    assert '"customer_id": "16121"' in tools.code[0].value
 
 
 def test_memory_tab_shows_suppressed_prediction(fake_api):
@@ -70,5 +73,15 @@ def test_memory_tab_shows_suppressed_prediction(fake_api):
     assert not at.exception
     rows = at.dataframe[-1].value
     assert rows.loc[0, "stock_code"] == "85123A"
-    assert rows.loc[0, "suppressed"].startswith("yes")
+    assert rows.loc[0, "status"] == "Suppressed"
+    assert rows.loc[0, "suppression_reason"].startswith("declined")
+
+
+def test_kpi_cards_show_as_of_and_suppressed_count(fake_api):
+    at = AppTest.from_file(APP, default_timeout=30)
+    at.session_state["customer_id"] = "16121"
+    at.run()
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["As-of date"] == "2011-11-01"
+    assert metrics["Suppressed items"] == "1"
 

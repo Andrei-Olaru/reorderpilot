@@ -133,3 +133,14 @@ Format per entry: context, options considered, choice, why, trade-offs.
 - **Why:** smallest change; a router would need its own phrase list and still miss wordings.
 - **Trade-off:** looser refusal rule → slightly higher risk of answering borderline off-topic requests. Manual check
   on 5 phrasings + 1 off-topic (weather, still refused). Evals C/D must be rerun for prompt v2 numbers.
+
+## D13 — Styled UI beyond SPEC's "clean layout" (2026-11-03)
+- **Context:** SPEC section 10 says "no styling work beyond a clean layout". The human explicitly asked for a polished,
+  enterprise-style UI (KPI cards, tool accordions, memory dashboard). The human's request overrides that SPEC line.
+- **Options:** (a) a `.streamlit/config.toml` theme; (b) a CSS block injected by the app; (c) a component library.
+- **Choice:** (b) a small CSS string + Streamlit built-ins (`st.metric`, `st.badge`, bordered containers, Material icons
+  via `:material/name:`). No new dependency, no API contract change.
+- **Why:** everything stays in one file and works in light and dark mode (translucent greys, no hard-coded backgrounds).
+- **Trade-offs:** CSS targets Streamlit's internal `data-testid` selectors, which can change between Streamlit versions
+  (the page still works, it just looks plainer). "Suppressed items" is per selected customer, because the API has no
+  global count endpoint; adding one would change the contract.

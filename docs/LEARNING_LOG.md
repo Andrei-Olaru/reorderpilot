@@ -142,3 +142,19 @@
 - **What could go wrong:** a looser refusal rule can let borderline off-topic questions through; rerun eval D.
 - **Interview Q:** "Why not hard-code a check for 'who should I call'?" → There are endless phrasings; a keyword list
   is brittle. A clear scope statement generalises better, and the eval set measures whether it does.
+
+## UI redesign: KPI cards, tool accordions, memory dashboard
+- **What I built:** a restyled Streamlit page. A row of four metric cards (session, as-of date, suppressed items of the
+  selected customer, customers due); tool calls now sit in a collapsed "Tool executions" accordion under each answer;
+  the memory tab has three sub-tabs: Customer Briefings, Logged Suppressions, Manual Override Form.
+- **Why this approach:** Streamlit already has metrics, badges, bordered containers and Material icons
+  (`:material/call:` in any label), so a short CSS block is enough. No new library, and the UI still only calls the API.
+- **Data is fetched once per rerun:** Streamlit reruns the whole script on every click. `main()` loads memory and
+  predictions of the customer once and passes them to the KPI row and the memory tab, so we don't call `/predict` twice.
+- **Flash message pattern:** after saving feedback the app calls `st.rerun()` so the tables refresh; the success text is
+  kept in `session_state` and shown once on the next run (otherwise it would vanish with the rerun).
+- **What could go wrong:** the CSS uses Streamlit's internal `data-testid` names; a Streamlit upgrade can rename them.
+  The page keeps working, it just loses some styling.
+- **Interview Q:** "Why are tool calls stored on each chat message instead of in one 'last tool calls' variable?" →
+  So you can audit any past answer, not just the newest one. The data was already returned by `/agent/chat`; we just
+  keep it next to the answer it belongs to.
