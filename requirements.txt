@@ -1,0 +1,25 @@
+# Pinned to the versions tested on 2026-11-03 (Python 3.12.5)
+# Data + model
+pandas==3.1.0
+numpy==2.5.4
+pyarrow==26.0.1
+scikit-learn==1.9.1
+joblib==1.6.0
+matplotlib==3.11.2
+openpyxl==3.1.5
+# API + UI
+fastapi==0.162.0
+uvicorn==0.54.0
+pydantic==2.14.2
+streamlit==1.66.1
+httpx==0.28.1
+# Agent
+openai==3.42.1
+langsmith==0.14.17
+rapidfuzz==3.14.6
+# Config + eval
+python-dotenv==1.2.4
+pyyaml==6.0.3
+# Dev
+pytest==9.2.0
+ruff==0.17.3
