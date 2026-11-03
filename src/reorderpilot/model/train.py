@@ -9,19 +9,17 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.isotonic import IsotonicRegression
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss
 
 from reorderpilot.config import ARTIFACTS_DIR, MIN_PRIOR_ORDERS, RANDOM_SEED, TRAIN_CUTOFFS, VALID_CUTOFFS
 from reorderpilot.data.loader import load_transactions
 from reorderpilot.features import FEATURE_COLUMNS, build_dataset
+from reorderpilot.model.bundle import ModelBundle, make_calibrator
 from reorderpilot.model.evaluate import abstention_curve, pair_metrics, topk_metrics
 
 log = logging.getLogger(__name__)
@@ -31,41 +29,6 @@ PARAM_GRID = [
     for lr in (0.05, 0.1) for leaves in (15, 31)
 ]
 TAU_GRID = [round(t, 2) for t in np.arange(0.0, 0.81, 0.02)]
-
-
-class PlattCalibrator:
-    """Platt scaling: logistic regression on the logit of the raw score. Same interface as IsotonicRegression."""
-
-    def fit(self, p: np.ndarray, y: np.ndarray) -> PlattCalibrator:
-        self.lr = LogisticRegression().fit(_logit(p).reshape(-1, 1), y)
-        return self
-
-    def predict(self, p: np.ndarray) -> np.ndarray:
-        return self.lr.predict_proba(_logit(np.asarray(p)).reshape(-1, 1))[:, 1]
-
-
-def _logit(p: np.ndarray) -> np.ndarray:
-    p = np.clip(p, 1e-6, 1 - 1e-6)
-    return np.log(p / (1 - p))
-
-
-def make_calibrator(kind: str):
-    """'isotonic' (monotone step function) or 'platt' (sigmoid)."""
-    return IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0) if kind == "isotonic" else PlattCalibrator()
-
-
-@dataclass
-class ModelBundle:
-    """What predict.py needs: the raw model, the calibrator, the abstention threshold, and the feature order."""
-
-    model: HistGradientBoostingClassifier
-    calibrator: object
-    tau: float
-    features: list[str]
-
-    def predict_proba(self, df: pd.DataFrame) -> np.ndarray:
-        raw = self.model.predict_proba(df[self.features].astype(float))[:, 1]
-        return np.asarray(self.calibrator.predict(raw), dtype=float)
 
 
 def fit_hgb(train: pd.DataFrame, params: dict) -> HistGradientBoostingClassifier:

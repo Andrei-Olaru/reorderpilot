@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 
 from reorderpilot.features import FEATURE_COLUMNS
-from reorderpilot.model.train import ModelBundle, choose_calibration, fit_hgb, make_calibrator
+from reorderpilot.model.bundle import ModelBundle, make_calibrator
+from reorderpilot.model.train import choose_calibration, fit_hgb
 
 
 def _synthetic(n=600, seed=0):
