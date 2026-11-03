@@ -79,3 +79,35 @@ Format per entry: context, options considered, choice, why, trade-offs.
 - **Alternatives:** duplicate policy code in tools and API (drift risk); monkeypatching module globals in tests (brittle).
 - **Trade-off:** suppressed items are *flagged*, not removed, so they still take a slot in `top_k` (auditable, but the
   rep may see fewer actionable items).
+
+## D7 — Agent loop: hand-written, malformed-JSON and error policy (2026-11-03)
+- **Context:** SPEC asks for a ~100-150 line loop, max 6 steps, one retry on malformed tool-call JSON, clear errors.
+- **Options:** (a) framework (LangChain/LangGraph agents); (b) provider "auto tool runner"; (c) hand-written loop.
+- **Choice:** (c). Malformed JSON (our parse fails, or Groq returns 400 `tool_use_failed`) shares ONE retry budget per
+  turn; the second time the user gets a fixed message. Pydantic validation errors are NOT retries: they go back to the
+  model as a ToolError so it can fix the call (they still consume steps). Hitting 6 steps returns a fixed message
+  instead of making a 7th "summarize" call (saves tokens on a rate-limited free tier).
+- **Why:** every branch is visible and unit-tested with a scripted fake LLM.
+- **Trade-off:** no streaming, no parallel tool execution; we maintain the message format ourselves.
+
+## D8 — Conversation memory replays only user + final assistant texts (2026-11-03)
+- **Context:** `messages` table gives short-term memory; tool results are large and the free tier is ~8K tokens/min.
+- **Options:** (a) replay full transcripts incl. tool calls; (b) replay last 10 user/assistant texts only.
+- **Choice:** (b). **Trade-off:** in a follow-up question the model may reuse numbers from its own earlier answer
+  instead of re-calling a tool (seen in the smoke test). The system prompt rule 1 still forces fresh tool calls for briefings.
+
+## D9 — Product resolution: word coverage instead of WRatio (2026-11-03)
+- **Context:** `find_product` must map "spaceboy lunch boxes" to a stock_code and say when it is ambiguous.
+- **Options:** (a) rapidfuzz WRatio top match; (b) share of query words found in the description (with plural
+  stemming), tie-break by whole-string similarity; (c) embeddings (out of scope: no vector DB).
+- **Choice:** (b), searching only the customer's own past purchases when customer_id is given. WRatio gave ~85.5 to any
+  product sharing one word, so "london tissues" was ambiguous with every "... TISSUES" product.
+- **Trade-off / honesty:** (b) was tuned on the eval-C phrases (22/22 resolved offline), so eval C's stock_code accuracy is
+  optimistic. A fresh held-out set of phrases is needed for an unbiased number. Adds `customer_id` to the agent-side
+  `FindProductToolArgs` only (subclass in tools.py); the shared `FindProductArgs` contract is unchanged.
+
+## D10 — Ranking customers with suppressions (2026-11-03)
+- **Context:** `list_customers_due` should not push a customer whose value comes from a just-declined product.
+- **Choice:** compute values for all customers, then subtract suppressed items only for the top 3 x limit before re-sorting.
+- **Why:** one SQLite lookup per shown customer instead of per customer (~2,000). **Trade-off:** a customer ranked
+  just outside 3 x limit can't move up; acceptable for a ranked call list.

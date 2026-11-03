@@ -5,6 +5,7 @@ Usage: python eval/run_agent_eval.py [--part C|D|all] [--limit N] [--model NAME]
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -125,7 +126,9 @@ def main() -> None:
     args = p.parse_args()
     cases = yaml.safe_load(CASES.read_text(encoding="utf-8"))
     llm, as_of = ev.make_llm(args.model, not args.no_cache), get_settings().as_of_date
-    res: dict = {}
+    previous = ev.EVAL_RESULTS_DIR / "agent_eval.json"
+    res: dict = json.loads(previous.read_text(encoding="utf-8")) if previous.exists() else {}  # keep the other part
+    res.pop("meta", None)
     if args.part in ("C", "all"):
         res["C"] = eval_c(cases["feedback_extraction"][: args.limit], llm, as_of)
     if args.part in ("D", "all"):

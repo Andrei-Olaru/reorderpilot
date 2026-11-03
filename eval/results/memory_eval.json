@@ -1,0 +1,131 @@
+{
+  "summary": {
+    "on": {
+      "repeat_recommendation_rate": 0.0,
+      "mentions_suppression_rate": 1.0,
+      "absent_rate": 0.0,
+      "tool_flagged_suppressed_rate": 1.0,
+      "finished_rate": 1.0
+    },
+    "off": {
+      "repeat_recommendation_rate": 1.0,
+      "mentions_suppression_rate": 0.0,
+      "absent_rate": 0.0,
+      "tool_flagged_suppressed_rate": 0.0,
+      "finished_rate": 1.0
+    }
+  },
+  "cases": [
+    {
+      "customer_id": "16121",
+      "declined_stock_code": "85123A",
+      "description": "WHITE HANGING HEART T-LIGHT HOLDER",
+      "on": {
+        "mention": "mentioned_suppressed",
+        "tool_flagged_suppressed": true,
+        "tools": [
+          "predict_reorder",
+          "read_memory"
+        ],
+        "stop": "answer",
+        "answer": "**Customer 16121 \u2013 Briefing**\n\n**Top reorder candidates**\n| Product (stock code) | Probability | Reason | Suppressed? |\n|----------------------|-------------|--------|-------------|\n| HEART OF WICKER LARGE (22470) | 11\u202f% | Bought 4 times, typically ~254\u2011day cycle; last purchase 19 days ago | No |\n| JUMBO BAG PINK POLKADOT (22386) | 11\u202f% | Bought 4 times, ~169\u2011day cycle; last purchase 19 days ago | No |\n| PAPER BUNTING RETROSPOT (22090) | 9\u202f% | Bought 4 times, ~169\u2011day cycle; last purchase 19 days ago | No |\n| JUMBO BAG RED RETROSPOT (85099B) | 9\u202f% | Bought 3 times, ~254\u2011day cycle; last purchase 19 days ago | No |\n| WHITE HANGING HEART T\u2011LIGHT HOLDER (85123A) | 13\u202f% | Bought 5 times, ~169\u2011day cycle; last purchase 19 days ago | **Yes \u2013 suppressed** (customer previously declined this item as overstocked until\u202f2011\u201112\u201101) |\n\n**Caveats**\n- The WHITE HANGING HEART T\u2011LIGHT HOLDER is suppressed because the customer indicated it was overstocked and declined it recently (expires\u202f2011\u201112\u201101). Do not recommend it now.\n- No price\u2011sensitivity flags are present for this customer.\n\n**Suggested outreach message (3\u20114 sentences)**\n> Hi\u202f[Customer Name], I noticed you\u2019ve been enjoying our HEART OF WICKER LARGE and JUMBO BAG designs. Based on your recent buying pattern, we thought you might like to restock the HEART OF WICKER LARGE or try the new JUMBO BAG PINK POLKADOT. Let us know if you\u2019d like to place an order or need any alternatives \u2013 we\u2019re happy to help!"
+      },
+      "off": {
+        "mention": "recommended",
+        "tool_flagged_suppressed": false,
+        "tools": [
+          "predict_reorder",
+          "read_memory"
+        ],
+        "stop": "answer",
+        "answer": "**Customer 16121 \u2013 Briefing**\n\n**Top reorder candidates**  \n1. **WHITE HANGING HEART T\u2011LIGHT HOLDER** \u2013 12.5% probability \u2013 bought 5 times, typically ~169\u202fdays apart, last purchase 19\u202fdays ago.  \n2. **HEART OF WICKER LARGE** \u2013 10.9% probability \u2013 bought 4 times, typically ~254\u202fdays apart, last purchase 19\u202fdays ago.  \n3. **JUMBO BAG PINK POLKADOT** \u2013 10.8% probability \u2013 bought 4 times, typically ~169\u202fdays apart, last purchase 19\u202fdays ago.  \n4. **PAPER BUNTING RETROSPOT** \u2013 8.7% probability \u2013 bought 4 times, typically ~169\u202fdays apart, last purchase 19\u202fdays ago.  \n5. **JUMBO BAG RED RETROSPOT** \u2013 8.6% probability \u2013 bought 3 times, typically ~254\u202fdays apart, last purchase 19\u202fdays ago.  \n\n**Caveats**  \n- No items are suppressed.  \n- Customer is not flagged as price\u2011sensitive.  \n- All probabilities are moderate; confidence is reasonable but not high.\n\n**Suggested outreach message (3\u20114 sentences)**  \nHi\u202f[Customer Name],\n\nI noticed you\u2019ve been enjoying our WHITE HANGING HEART T\u2011LIGHT HOLDER and HEART OF WICKER LARGE recently. Since it\u2019s been just a few weeks since your last order, we thought you might be ready to restock \u2013 we have them in stock and can ship them right away. Let us know if you\u2019d like to place an order or explore any of our other best\u2011selling items like the JUMBO BAG PINK POLKADOT.  \n\nBest regards,  \n[Your Name] \u2013 Sales Team."
+      }
+    },
+    {
+      "customer_id": "15379",
+      "declined_stock_code": "22383",
+      "description": "LUNCH BAG SUKI  DESIGN",
+      "on": {
+        "mention": "mentioned_suppressed",
+        "tool_flagged_suppressed": true,
+        "tools": [
+          "predict_reorder",
+          "read_memory"
+        ],
+        "stop": "answer",
+        "answer": "**Customer 15379 \u2013 Briefing**\n\n**Top reorder candidates**  \n- **ASSORTED COLOUR BIRD ORNAMENT** \u2013 24.8% chance \u2013 bought 5 times, ~48\u2011day cycle, last purchase 170\u202fdays ago.  \n- **BAKING SET 9 PIECE RETROSPOT** \u2013 22.1% chance \u2013 bought 3 times, ~84\u2011day cycle, last purchase 131\u202fdays ago.  \n- **LUNCH BAG SPACEBOY DESIGN** \u2013 21.7% chance \u2013 bought 3 times, ~116\u2011day cycle, last purchase 131\u202fdays ago.  \n- **NATURAL SLATE HEART CHALKBOARD** \u2013 20.4% chance \u2013 bought 3 times, ~107\u2011day cycle, last purchase 148\u202fdays ago.  \n\n**Suppressed item**  \n- **LUNCH BAG SUKI DESIGN** \u2013 suppressed because the customer previously declined it as \u201coverstocked\u201d (suppression runs until 2011\u201112\u201101).\n\n**Caveats**  \n- No price\u2011sensitivity flags.  \n- All probabilities are above 20\u202f%; confidence is solid.\n\n**Suggested outreach message (3\u20114 sentences)**  \n\u201cHi\u202f[Name], I noticed you\u2019ve been enjoying our decorative items and kitchen accessories. Based on your past ordering pattern, you might be ready to restock the Assorted Colour Bird Ornament or the Baking Set 9\u2011Piece Retrospot. Let me know if you\u2019d like to place an order or explore similar alternatives\u2014happy to help!\u201d"
+      },
+      "off": {
+        "mention": "recommended",
+        "tool_flagged_suppressed": false,
+        "tools": [
+          "predict_reorder",
+          "read_memory"
+        ],
+        "stop": "answer",
+        "answer": "**Customer 15379 \u2013 Re\u2011order Briefing (as of 2011\u201111\u201101)**  \n\n**Top product recommendations**  \n| # | Stock Code | Description | Re\u2011order probability | Reason |\n|---|------------|-------------|----------------------|--------|\n| 1 | 22383 | LUNCH BAG\u202fSUKI\u202fDESIGN | 24.8\u202f% | Bought 4\u00d7, typically every ~50\u202fdays; last purchase 148\u202fdays ago \u2013 due now |\n| 2 | 84879 | ASSORTED COLOUR BIRD ORNAMENT | 24.8\u202f% | Bought 5\u00d7, typically every ~48\u202fdays; last purchase 170\u202fdays ago \u2013 due now |\n| 3 | 22138 | BAKING SET\u202f9\u202fPIECE\u202fRETROSPOT | 22.1\u202f% | Bought 3\u00d7, typically every ~84\u202fdays; last purchase 131\u202fdays ago \u2013 due now |\n| 4 | 22382 | LUNCH BAG\u202fSPACEBOY\u202fDESIGN | 21.7\u202f% | Bought 3\u00d7, typically every ~116\u202fdays; last purchase 131\u202fdays ago \u2013 due now |\n| 5 | 22457 | NATURAL SLATE HEART\u202fCHALKBOARD | 20.4\u202f% | Bought 3\u00d7, typically every ~107\u202fdays; last purchase 148\u202fdays ago \u2013 due now |\n\n**Caveats**  \n- No items are suppressed.  \n- Customer is not flagged as price\u2011sensitive.  \n- All probabilities are above 20\u202f%, giving moderate confidence in the suggested re\u2011orders.\n\n**Suggested outreach message (3\u20114 sentences)**  \n\u201cHi\u202f[Name], I noticed it\u2019s been a while since your last order and thought you might be ready to restock some of your favourites. Our LUNCH BAG\u202fSUKI\u202fDESIGN and the colourful BIRD ORNAMENTs are both back in stock and perfect for the upcoming season. Let me know if you\u2019d like to place an order or explore any new items \u2013 I\u2019m happy to help!\u201d"
+      }
+    },
+    {
+      "customer_id": "14810",
+      "declined_stock_code": "82482",
+      "description": "WOODEN PICTURE FRAME WHITE FINISH",
+      "on": {
+        "mention": "mentioned_suppressed",
+        "tool_flagged_suppressed": true,
+        "tools": [
+          "predict_reorder",
+          "read_memory"
+        ],
+        "stop": "answer",
+        "answer": "**Customer 14810 \u2013 Briefing (as of 2011\u201111\u201101)**  \n\n| Rank | Stock Code | Description | Probability | Reason |\n|------|------------|-------------|-------------|--------|\n| 1 | 82494L | WOODEN FRAME ANTIQUE WHITE | **40\u202f%** | Bought 7 times, usually every ~49 days; last purchase 2 days ago |\n| 2 | 22382 | LUNCH BAG SPACEBOY DESIGN | **34\u202f%** | Bought 8 times, usually every ~47 days; last purchase 65 days ago (due now) |\n| 3 | 22383 | LUNCH BAG SUKI DESIGN | **34\u202f%** | Bought 7 times, usually every ~65 days; last purchase 2 days ago |\n| 4 | 22411 | JUMBO SHOPPER VINTAGE RED PAISLEY | **32\u202f%** | Bought 7 times, usually every ~65 days; last purchase 2 days ago |\n| 5 | 82482 | WOODEN PICTURE FRAME WHITE FINISH | **42\u202f%** *(suppressed)* | Bought 8 times, usually every ~47 days; last purchase 2 days ago. **Suppressed** because the customer previously declined this item as \u201coverstocked\u201d (feedback valid until 2011\u201112\u201101). |\n\n**Caveats**  \n- Item 82482 is suppressed due to a recent \u201coverstocked\u201d decline; do not recommend it now.  \n- No price\u2011sensitivity flags for this customer.  \n- Probabilities are derived from the model; confidence is moderate (30\u201140\u202f%).  \n\n**Suggested outreach message (3\u20114 sentences)**  \n\n> Hi\u202f[Customer Name],  \n> I noticed you\u2019ve been enjoying our wooden frames and lunch bags. Based on your recent ordering pattern, the **WOODEN FRAME ANTIQUE WHITE** and the **LUNCH BAG SPACEBOY DESIGN** are likely due for restocking soon. Would you like me to arrange a quick reorder for either of these, or is there another product you have in mind?  \n\nFeel free to adjust tone or add any promotional details you think are appropriate."
+      },
+      "off": {
+        "mention": "recommended",
+        "tool_flagged_suppressed": false,
+        "tools": [
+          "predict_reorder",
+          "read_memory"
+        ],
+        "stop": "answer",
+        "answer": "**Customer 14810 \u2013 Re\u2011order Briefing (as of 2011\u201111\u201101)**  \n\n**Top product recommendations**  \n| Rank | Stock Code | Description | Re\u2011order probability | Reason |\n|------|------------|-------------|----------------------|--------|\n| 1 | 82482 | WOODEN PICTURE FRAME WHITE FINISH | 41.9\u202f% | Bought 8 times, usually every ~47\u202fdays, last bought 2\u202fdays ago |\n| 2 | 82494L | WOODEN FRAME ANTIQUE WHITE | 39.8\u202f% | Bought 7 times, usually every ~49\u202fdays, last bought 2\u202fdays ago |\n| 3 | 22382 | LUNCH BAG SPACEBOY DESIGN | 34.1\u202f% | Bought 8 times, usually every ~47\u202fdays, last bought 65\u202fdays ago (due now) |\n| 4 | 22383 | LUNCH BAG SUKI DESIGN | 34.0\u202f% | Bought 7 times, usually every ~65\u202fdays, last bought 2\u202fdays ago |\n| 5 | 22411 | JUMBO SHOPPER VINTAGE RED PAISLEY | 32.2\u202f% | Bought 7 times, usually every ~65\u202fdays, last bought 2\u202fdays ago |\n\n**Caveats**  \n- No suppressed items for this customer.  \n- The model is not flagged as price\u2011sensitive.  \n- Probabilities are moderate (\u224832\u201142\u202f%); confidence is typical for repeat\u2011order patterns.\n\n**Suggested outreach message (3\u20114 sentences)**  \n\u201cHi\u202f[Customer Name], I noticed you\u2019ve been restocking our wooden picture frames and antique white frames regularly, and your last order was just a couple of days ago. We have fresh stock of the WOODEN PICTURE FRAME WHITE FINISH (82482) and WOODEN FRAME ANTIQUE WHITE (82494L) ready to ship whenever you need them. Also, your popular LUNCH BAG SPACEBOY DESIGN (22382) is due for a refill now. Let me know if you\u2019d like to place an order or explore any new designs!\u201d"
+      }
+    },
+    {
+      "customer_id": "17351",
+      "declined_stock_code": "48138",
+      "description": "DOORMAT UNION FLAG",
+      "on": {
+        "mention": "mentioned_suppressed",
+        "tool_flagged_suppressed": true,
+        "tools": [
+          "predict_reorder",
+          "read_memory"
+        ],
+        "stop": "answer",
+        "answer": "**Customer 17351 \u2013 Briefing**\n\n**Top reorder candidates**\n| Rank | Stock Code | Description | Probability | Reason |\n|------|------------|-------------|-------------|--------|\n| 1 | 20685 | DOORMAT RED RETROSPOT | 14\u202f% | Bought 2 times, usually every ~104\u202fdays; last purchase 131\u202fdays ago (due now) |\n| 2 | 21955 | DOORMAT UNION JACK GUNS AND ROSES | 12\u202f% | Bought 5 times, usually every ~140\u202fdays; last purchase 131\u202fdays ago |\n| 3 | 23307 | SET OF 60 PANTRY DESIGN CAKE CASES | 11\u202f% | Bought once, 131\u202fdays ago |\n| 4 | 23298 | SPOTTY BUNTING | 11\u202f% | Bought once, 131\u202fdays ago |\n\n**Suppressed item**\n- **48138 \u2013 DOORMAT UNION FLAG** \u2013 suppressed because the customer previously declined it as \u201coverstocked\u201d (suppression active until 2011\u201112\u201101).\n\n**Caveats**\n- No price\u2011sensitivity noted.\n- Probabilities are modest; confidence is moderate.\n\n**Suggested outreach message (3\u20114 sentences)**\n> Hi\u202f[Customer Name], I noticed it\u2019s been a while since your last order and thought you might be ready to restock some popular items. Our DOORMAT RED RETROSPOT and DOORMAT UNION JACK GUNS AND ROSES are both due for reorder and have been well\u2011received by you in the past. Let me know if you\u2019d like to place an order or explore any alternatives \u2013 we\u2019re happy to help!"
+      },
+      "off": {
+        "mention": "recommended",
+        "tool_flagged_suppressed": false,
+        "tools": [
+          "predict_reorder",
+          "read_memory"
+        ],
+        "stop": "answer",
+        "answer": "**Customer 17351 \u2013 Re\u2011order Briefing (as of 2011\u201111\u201101)**  \n\n**Top product recommendations**  \n| # | Stock Code | Description | Probability | Reason |\n|---|------------|-------------|-------------|--------|\n| 1 | 48138 | DOORMAT UNION FLAG | **34\u202f%** | Bought 7 times, typically every ~86\u202fdays; last purchase 131\u202fdays ago \u2013 due now |\n| 2 | 20685 | DOORMAT RED RETROSPOT | **14\u202f%** | Bought 2 times, usually every ~104\u202fdays; last purchase 131\u202fdays ago \u2013 due now |\n| 3 | 21955 | DOORMAT UNION JACK GUNS AND ROSES | **12\u202f%** | Bought 5 times, usually every ~140\u202fdays; last purchase 131\u202fdays ago |\n| 4 | 23307 | SET OF 60 PANTRY DESIGN CAKE CASES | **11\u202f%** | Bought once, 131\u202fdays ago |\n| 5 | 23298 | SPOTTY BUNTING | **11\u202f%** | Bought once, 131\u202fdays ago |\n\n**Caveats**  \n- No items are suppressed.  \n- Customer is not flagged as price\u2011sensitive.  \n- Probabilities are moderate; the top three are the strongest signals.\n\n**Suggested outreach message**  \n\n> Hi\u202f[Customer Name],  \n> I noticed it\u2019s been a while since your last order of the Union Flag doormat (and a few of the other popular items you\u2019ve enjoyed). We have fresh stock ready to go\u2014would you like us to send a quick refill of the Union Flag doormat, or perhaps try the Red Retrospot or Union Jack Guns & Roses styles? Let me know what works best for you!  \n\nFeel free to adjust tone or add any promotions you think are relevant."
+      }
+    }
+  ],
+  "meta": {
+    "model": "openai/gpt-oss-120b",
+    "n": 30,
+    "limit": 4,
+    "usage": {
+      "calls": 0,
+      "cache_hits": 24,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    }
+  }
+}

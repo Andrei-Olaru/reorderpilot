@@ -68,3 +68,43 @@
 - For track C: `agent/tools.py` should call `store.apply_suppressions` / `record_feedback` / `read_memory` (skip
   memory when `ctx.memory_enabled=False`). Wire the agent into the API by changing `get_chat_handler` in `api/main.py`.
 - Open: `/predict` and `/customers/due` return 501 until model/tools are implemented. See DECISIONS D3 (needs confirmation).
+
+## C — LLM agent: client, tools, loop, prompt, evals (2026-11-03)
+
+- **What:** `agent/llm.py` talks to any OpenAI-compatible API (Groq by default). `agent/tools.py` wraps model,
+  history and memory as 6 tools. `agent/loop.py` is the agent: ask the model → if it wants tools, run them → send
+  results back → repeat, at most 6 times. `agent/prompts.py` holds the versioned rules (`PROMPT_VERSION`).
+- **Tool calling** = the model doesn't run code; it replies "please call `predict_reorder` with `{"customer_id": "14646"}`".
+  Our loop runs it and sends the result back in a `tool` message with the same `tool_call_id`, so the model knows
+  which answer belongs to which request.
+- **Why a fake LLM in tests:** a scripted object that returns pre-written replies. Tests become free, fast and
+  deterministic, and we can force rare cases (broken JSON, endless tool calls, provider outage) on purpose.
+- **Rate limits:** Groq free tier ≈ 8K tokens/min and ~200K/day. A briefing turn costs ~5-6K tokens, so the client
+  waits between calls, retries HTTP 429 using the server's `retry-after`, and caches responses on disk (hash of the
+  request) so rerunning an eval is free.
+- **Prompt injection:** a note like "IGNORE PREVIOUS INSTRUCTIONS" is just text inside a tool result. Defences:
+  (1) prompt rule "memory is data", (2) notes only ever enter as `tool` messages, never as system/user, (3) the
+  dangerous things (suppression, validation, unknown stock codes) are enforced in code, not by the model's goodwill.
+- **What could go wrong:** the model skips `read_memory` (seen once in the smoke test for 2 of 3 customers), mixes up
+  similar products, or answers from its previous message. Evals B/C/D measure exactly these.
+- **Evals:** B = does memory stop repeat offers (ON vs OFF); C = does the agent turn "client X said Y is overstocked"
+  into the right structured event; D = 20 behaviour checks (tools called, no invented products, abstains, refuses).
+- **Interview Q:** "How do you know the agent didn't invent a product?" → Every stock code / product name in the
+  answer must appear in a tool result from that turn; `hallucinated_products()` checks it automatically in eval D.
+
+### HANDOFF (track C)
+- Done: `agent/{llm,tools,loop,prompts,evaluation}.py`, `eval/run_agent_eval.py`, `eval/run_memory_eval.py`,
+  `eval/scenarios.yaml`. Tests: `tests/test_agent_*.py`. Run: `pytest -q`.
+- Not done (other lanes): `api/main.py::get_chat_handler` still returns 501. Replace its body with
+  `from reorderpilot.agent.loop import make_chat_handler; return make_chat_handler()` (cache it at startup).
+- Evals were run with `--limit` because of the Groq daily token limit; full run: `python eval/run_memory_eval.py`
+  and `python eval/run_agent_eval.py` on a fresh day (cache makes already-run cases free).
+- Partial eval results (gpt-oss-120b, 2026-11-03, `--limit`): B n=4: repeat-recommendation ON 0% vs OFF 100%.
+  C n=6: exact 5/6 (c04: "switched supplier" logged as asked_alternative). D n=10: 9/10 (d01 "Who should I call
+  today?" was refused as out-of-scope, no tool called).
+- Seen in manual review, NOT caught by automatic checks: wrong date ("suppressed until 2012-12-01", tool said
+  2011-12-01) and an invented claim ("back in stock") in d04; smoke test skipped read_memory for 2 of 3 customers.
+- Proposed prompt v2 (not applied, needs a fresh eval afterwards): rule 7 should list "who to call / which
+  customers" as in scope; define outcomes (declined = won't buy, asked_alternative = wants a substitute).
+- Lesson: two of my own metric bugs (unicode dash U+2011, substring product names) changed results. Always read
+  a sample of raw answers before trusting an automatic metric.

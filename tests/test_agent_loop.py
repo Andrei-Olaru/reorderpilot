@@ -145,3 +145,13 @@ def test_session_history_is_saved_and_replayed(ctx):
     run_turn("second question", llm, ctx, session_id="s1")
     contents = [m["content"] for m in llm.seen[0]]
     assert contents[1:] == ["first question", "first answer", "second question"]
+
+
+def test_chat_handler_returns_api_response(ctx):
+    from reorderpilot.agent.loop import make_chat_handler
+    from reorderpilot.api.schemas import ChatRequest
+
+    handler = make_chat_handler(ScriptedLLM([answer("hello rep")]), ctx)
+    resp = handler(ChatRequest(session_id="s9", message="hi"))
+    assert resp.answer == "hello rep" and resp.tool_calls == []
+    assert len(store.list_messages(ctx.db_path, "s9")) == 2

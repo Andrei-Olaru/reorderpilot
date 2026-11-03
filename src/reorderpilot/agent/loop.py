@@ -13,7 +13,7 @@ from langsmith import traceable, tracing_context
 from reorderpilot.agent import tools
 from reorderpilot.agent.llm import ChatModel, LLMError, MalformedToolCallError
 from reorderpilot.agent.prompts import PROMPT_VERSION, system_prompt
-from reorderpilot.api.schemas import ChatResponse, ToolCallRecord
+from reorderpilot.api.schemas import ChatRequest, ChatResponse, ToolCallRecord
 from reorderpilot.config import AGENT_MAX_STEPS
 from reorderpilot.memory import store
 
@@ -113,3 +113,19 @@ def run_turn(user_message: str, llm: ChatModel, ctx: tools.ToolContext, session_
         store.add_message(ctx.db_path, session_id, "user", user_message, None, ctx.as_of)
         store.add_message(ctx.db_path, session_id, "assistant", out.response.answer, calls_json, ctx.as_of)
     return out
+
+
+def make_chat_handler(llm: ChatModel | None = None, ctx: tools.ToolContext | None = None):
+    """Build the POST /agent/chat handler (real LLM + real memory.db unless fakes are passed in)."""
+    from reorderpilot.agent.llm import LLMConfig, OpenAICompatibleLLM
+    from reorderpilot.config import get_settings
+
+    settings = get_settings()
+    llm = llm or OpenAICompatibleLLM(LLMConfig.from_env())
+    ctx = ctx or tools.ToolContext(as_of=settings.as_of_date, db_path=settings.memory_db_path)
+
+    def handler(request: ChatRequest) -> ChatResponse:
+        return run_turn(request.message, llm, ctx, session_id=request.session_id,
+                        tracing=settings.langsmith_tracing).response
+
+    return handler

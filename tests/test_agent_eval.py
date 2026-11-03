@@ -23,3 +23,15 @@ def test_classify_mention():
     assert classify_mention("22629 is suppressed (overstocked)", "22629", "SPACEBOY LUNCH BOX") == \
         "mentioned_suppressed"
     assert classify_mention("Offer the dolly girl box", "22629", "SPACEBOY LUNCH BOX") == "absent"
+
+
+def test_unicode_dashes_from_llm_still_match():
+    cat = {"85123A": "WHITE HANGING HEART T-LIGHT HOLDER"}
+    answer = "1. **WHITE HANGING HEART T\u2011LIGHT HOLDER** \u2013 12.5% probability"
+    assert classify_mention(answer, "85123A", cat["85123A"]) == "recommended"
+    assert mentioned_products(answer, cat) == {"85123A"}
+
+
+def test_shorter_description_inside_longer_one_is_not_a_second_product():
+    cat = {"85123A": "WHITE HANGING HEART T-LIGHT HOLDER", "21814": "HEART T-LIGHT HOLDER"}
+    assert mentioned_products("Offer the WHITE HANGING HEART T-LIGHT HOLDER", cat) == {"85123A"}

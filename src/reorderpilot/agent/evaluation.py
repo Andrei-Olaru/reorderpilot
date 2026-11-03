@@ -46,8 +46,13 @@ def temp_ctx(as_of: date, memory_enabled: bool = True) -> Iterator[ToolContext]:
         yield ToolContext(as_of=as_of, db_path=Path(d) / "memory.db", memory_enabled=memory_enabled)
 
 
+_UNICODE_FIXES = str.maketrans({"‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-",
+                                " ": " ", " ": " ", " ": " "})
+
+
 def _norm(text: str) -> str:
-    return " ".join(text.upper().replace(".", " ").split())
+    """Upper-case, unify unicode dashes/spaces (LLMs emit U+2011 etc.), drop dots, collapse whitespace."""
+    return " ".join(text.translate(_UNICODE_FIXES).upper().replace(".", " ").split())
 
 
 def catalog() -> dict[str, str]:
@@ -79,7 +84,10 @@ def mentioned_products(answer: str, cat: dict[str, str], ignore: set[str] = froz
     """Products named in the answer, by stock code or by full description (customer ids in `ignore`)."""
     text = _norm(answer)
     codes = {m for m in CODE_RE.findall(text) if m in cat and m not in ignore}
-    return codes | {c for c, d in cat.items() if len(d) >= 12 and d in text}
+    by_desc = {c: d for c, d in cat.items() if len(d) >= 12 and d in text}
+    # "HEART T-LIGHT HOLDER" inside "WHITE HANGING HEART T-LIGHT HOLDER" is one product, not two.
+    longest = {c for c, d in by_desc.items() if not any(d != o and d in o for o in by_desc.values())}
+    return codes | longest
 
 
 def hallucinated_products(answer: str, tool_outputs: list[dict], cat: dict[str, str], user_message: str) -> set[str]:
@@ -91,7 +99,7 @@ def hallucinated_products(answer: str, tool_outputs: list[dict], cat: dict[str, 
 def classify_mention(answer: str, code: str, description: str) -> str:
     """'absent' | 'mentioned_suppressed' | 'recommended' for one product in an answer (line-level heuristic)."""
     desc = _norm(description)
-    lines = [ln for ln in answer.splitlines() if code in ln.upper() or (desc and desc in _norm(ln))]
+    lines = [ln for ln in answer.splitlines() if code in _norm(ln) or (desc and desc in _norm(ln))]
     if not lines:
         return "absent"
     if all(any(w in ln.lower() for w in SUPPRESSION_WORDS) for ln in lines):
