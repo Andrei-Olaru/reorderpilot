@@ -122,3 +122,14 @@ Format per entry: context, options considered, choice, why, trade-offs.
   and must not be redistributed (CC BY 4.0 attribution, raw data stays out); the model is gitignored too.
 - **Trade-offs:** the UI needs the API running (it shows a clear error otherwise); a clean clone must build data
   and train once before `docker compose up`. SPEC says Python 3.11; the image uses 3.12 to match `requirements.txt`.
+
+## D12 — Prompt v2: "who to call" is in scope (2026-11-03)
+- **Context:** with prompt v1, "Who should I call today?" was refused without any tool call (eval D d01, and seen
+  live in the UI). Rule 7 ("requests not about customers, products or orders → refuse") didn't name call planning,
+  so gpt-oss treated it as off-topic. Also seen: a "who to call" answer that briefed one customer without read_memory.
+- **Options:** (a) keyword router in code that forces list_customers_due; (b) state the scope + the tool in the prompt.
+- **Choice:** (b): an explicit "your job" paragraph mapping "who should I call?" to list_customers_due; rule 7 now
+  refuses only clearly unrelated requests ("when unsure, use the tools"); outcome definitions added (eval C c04).
+- **Why:** smallest change; a router would need its own phrase list and still miss wordings.
+- **Trade-off:** looser refusal rule → slightly higher risk of answering borderline off-topic requests. Manual check
+  on 5 phrasings + 1 off-topic (weather, still refused). Evals C/D must be rerun for prompt v2 numbers.

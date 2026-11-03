@@ -128,3 +128,17 @@
   a stale `memory.db` from earlier runs makes a demo decline look "already there" (the demo script resets it).
 - **Interview Q:** "Why does the memory tab still show the declined product?" → It's flagged `suppressed` with the
   reason, not deleted, so a reviewer can audit why it wasn't offered. The agent sees the same flag and doesn't offer it.
+
+## D2 — Fix: "Who should I call today?" was refused (2026-11-03)
+
+- **Symptom:** the agent answered "I'm sorry, but I can't help with that" and called no tool.
+- **Cause:** the prompt said "refuse requests not about customers, products or orders". "Who should I call?" doesn't
+  contain those words, so the model decided it was off-topic. LLMs follow the *wording* of rules, not your intent.
+- **Fix (prompt v2):** the prompt now says what the job is, in the rep's words ("who should I call?" → call
+  `list_customers_due`), and refuses only clearly unrelated requests. `PROMPT_VERSION` is "v2", so traces and eval
+  results show which prompt produced them.
+- **How I checked:** reproduced with the real LLM first, then 5 phrasings + 1 off-topic question after the fix, and a
+  chat session that already contained the old refusal (the history replay could make the model repeat itself).
+- **What could go wrong:** a looser refusal rule can let borderline off-topic questions through; rerun eval D.
+- **Interview Q:** "Why not hard-code a check for 'who should I call'?" → There are endless phrasings; a keyword list
+  is brittle. A clear scope statement generalises better, and the eval set measures whether it does.
