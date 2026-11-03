@@ -38,9 +38,12 @@ def clean_transactions(raw: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
     """Apply cleaning rules in order; return (clean df, report of rows removed per rule)."""
     report: list[dict] = [{"rule": "input rows", "rows_removed": 0, "rows": len(raw)}]
     df = raw.copy()
+    # Normalise keys first so "85123a " and "85123A" are one product and the rules below compare like with like.
     df["StockCode"] = df["StockCode"].astype(str).str.strip().str.upper()
     df["Invoice"] = df["Invoice"].astype(str).str.strip()
 
+    # Order matters for the report (each count is "removed by this rule, after the previous ones"), not for the
+    # final result: the rules are independent filters.
     rules: list[tuple[str, Callable[[pd.DataFrame], pd.Series]]] = [
         ("exact duplicate rows (incl. xlsx sheet overlap)", lambda d: d.duplicated()),
         ("missing Customer ID", lambda d: d["Customer ID"].isna()),

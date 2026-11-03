@@ -1,7 +1,9 @@
 """Agent tools (SPEC section 8): thin wrappers over model, history and memory, with Pydantic-validated args.
 
 This is where memory suppression is applied to predict_reorder output, so it is auditable.
-Tools never raise to the loop: `execute_tool` turns every problem into a ToolError the LLM can read.
+Tools never raise to the loop: `run_tool` turns every problem into a ToolError the LLM can read.
+Grounding on the input side: write_memory rejects stock codes that are not in the data; on the output side the
+loop filters invented codes from the final answer (agent/grounding.py).
 """
 
 from __future__ import annotations
@@ -257,15 +259,6 @@ def run_tool(name: str, args: dict, ctx: ToolContext) -> ToolResults:
         return ToolError(error=f"invalid arguments for {name}: {problems}")
     except Exception as e:  # noqa: BLE001 - a tool bug must not crash the conversation
         return ToolError(error=f"{name} failed: {type(e).__name__}: {str(e)[:200]}")
-
-
-def execute_tool(name: str, raw_args: str, ctx: ToolContext) -> ToolResults:
-    """Parse + validate JSON args, run the named tool, return a result or ToolError (never raises)."""
-    try:
-        args = parse_arguments(raw_args)
-    except ValueError as e:
-        return ToolError(error=f"arguments were not valid JSON: {e}")
-    return run_tool(name, args, ctx)
 
 
 def summarize(result: ToolResults) -> str:

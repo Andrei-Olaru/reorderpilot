@@ -144,3 +144,18 @@ Format per entry: context, options considered, choice, why, trade-offs.
 - **Trade-offs:** CSS targets Streamlit's internal `data-testid` selectors, which can change between Streamlit versions
   (the page still works, it just looks plainer). "Suppressed items" is per selected customer, because the API has no
   global count endpoint; adding one would change the contract.
+
+## D14 — Runtime grounding guard for stock codes (2026-11-04)
+- **Context:** prompt rule 2 tells the LLM to state only tool data, and eval D *measures* hallucinated products after
+  the fact. Nothing stopped an invented stock code from reaching the rep at runtime.
+- **Options:** (a) stronger prompt wording only; (b) re-ask the LLM to rewrite when an invented code is found;
+  (c) deterministic filter in the loop: drop answer lines citing codes not seen earlier in the transcript;
+  (d) raise an error and return no answer.
+- **Choice:** (c), in `agent/grounding.py`, applied to every final answer in `loop._loop`. "Seen earlier" = tool
+  results, the rep's messages and replayed earlier turns. Prompt left at v2 (a bump would invalidate cached eval runs).
+- **Why:** a prompt is a request, not a guarantee; (b) costs an extra LLM call per incident (Groq rate limit); (d)
+  throws away a mostly-good answer. A line filter is cheap, testable and auditable (`TurnResult.removed_codes`).
+- **Trade-offs:** only code-shaped tokens (5 digits + up to 2 letters) are checked; an invented product named only by
+  description slips through (eval D still catches those). A whole line is dropped, even if half of it was fine. Because
+  the guard rewrites answers, eval D now reflects the guarded output; `removed_codes` shows what the raw LLM did.
+  No API contract change (`ChatResponse` is unchanged).

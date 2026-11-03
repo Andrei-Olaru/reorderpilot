@@ -26,6 +26,7 @@ FEATURE_COLUMNS = [
 
 
 def _ts(cutoff: date | pd.Timestamp) -> pd.Timestamp:
+    """Cutoff as a midnight Timestamp, so "before T" means "before day T starts"."""
     return pd.Timestamp(cutoff).normalize()
 
 
@@ -37,6 +38,7 @@ def history_before(tx: pd.DataFrame, cutoff: date | pd.Timestamp) -> pd.DataFram
 def _interval_stats(days: pd.DataFrame, keys: list[str], prefix: str) -> pd.DataFrame:
     """Mean/std of gaps (in days) between consecutive distinct purchase days, per group."""
     d = days[keys + ["day"]].drop_duplicates().sort_values(keys + ["day"])
+    # diff() within each group: first purchase -> NaN gap, so a pair bought once has NaN mean (handled downstream).
     gap = d.groupby(keys)["day"].diff().dt.days
     g = d.assign(gap=gap).groupby(keys)["gap"]
     return pd.DataFrame({f"mean_interval{prefix}": g.mean(), f"std_interval{prefix}": g.std(ddof=0)})
@@ -49,7 +51,8 @@ def build_features(tx: pd.DataFrame, cutoff: date | pd.Timestamp,
     Helper columns (not model features): cutoff, in_last_order, description.
     """
     T = _ts(cutoff)
-    hist = history_before(tx, T)
+    hist = history_before(tx, T)   # leakage guard: nothing on or after T is visible below this line
+    # Popularity uses ALL customers (before filtering to customer_ids): it is a property of the product.
     popularity = (hist[hist["invoice_date"] >= T - pd.Timedelta(days=POPULARITY_WINDOW_DAYS)]
                   .groupby("stock_code")["customer_id"].nunique().rename("product_popularity_90d"))
     if customer_ids is not None:
@@ -86,11 +89,12 @@ def build_features(tx: pd.DataFrame, cutoff: date | pd.Timestamp,
     pair = pair.join(_interval_stats(lines, KEY, "_p")).reset_index()
     pair = pair.merge(cust.reset_index(), on="customer_id", how="left")
     pair["days_since_last_p"] = (T - pair["last_day_p"]).dt.days
+    # > 1 means "it has been longer than this customer's usual gap for this product". NaN when there is no gap yet.
     pair["overdue_ratio"] = pair["days_since_last_p"] / pair["mean_interval_p"].replace(0, np.nan)
     pair["share_of_customer_orders_with_p"] = pair["n_orders_p"] / pair["cust_n_orders"]
     pair["in_last_order"] = pair["last_day_p"] == pair["cust_last_day"]
     pair = pair.merge(popularity.reset_index(), on="stock_code", how="left")
-    pair["product_popularity_90d"] = pair["product_popularity_90d"].fillna(0)
+    pair["product_popularity_90d"] = pair["product_popularity_90d"].fillna(0)   # not sold in the last 90 days
     pair["month"] = T.month
     pair["cutoff"] = T
     return pair[KEY + ["cutoff"] + FEATURE_COLUMNS + ["in_last_order"]]
@@ -109,6 +113,7 @@ def build_dataset(tx: pd.DataFrame, cutoffs: Iterable[date], min_prior_orders: i
     for c in cutoffs:
         feats = build_features(tx, c)
         feats = feats[feats["cust_n_orders"] >= min_prior_orders]
+        # Left join: candidates not bought in the window get NaN -> label 0. New products are not candidates.
         feats = feats.merge(build_labels(tx, c), on=KEY, how="left")
         feats["label"] = feats["label"].fillna(0).astype("int8")
         parts.append(feats)

@@ -60,9 +60,11 @@ def predict_for(tx: pd.DataFrame, bundle: ModelBundle, customer_id: str, top_k: 
     if n_orders < MIN_PRIOR_ORDERS:
         return abstain(f"not enough history: {n_orders} prior order(s), need at least {MIN_PRIOR_ORDERS}")
 
+    # Calibrated probabilities (bundle = model + calibrator). stock_code breaks ties so output is deterministic.
     feats = feats.assign(probability=bundle.predict_proba(feats))
     feats = feats.sort_values(["probability", "stock_code"], ascending=[False, True])
     best = float(feats["probability"].iloc[0])
+    # Abstention: if even the best product is below tau (chosen on validation), saying nothing beats a weak guess.
     if best < bundle.tau:
         return abstain(f"low confidence: best product is {best:.0%}, below the {bundle.tau:.0%} threshold")
 
@@ -70,7 +72,7 @@ def predict_for(tx: pd.DataFrame, bundle: ModelBundle, customer_id: str, top_k: 
     recs = [
         Recommendation(stock_code=r["stock_code"], description=str(descriptions.get(r["stock_code"], "")),
                        probability=round(float(r["probability"]), 4), reason_text=explain(r))
-        for _, r in feats[feats["probability"] >= bundle.tau].head(top_k).iterrows()
+        for _, r in feats[feats["probability"] >= bundle.tau].head(top_k).iterrows()   # only items above tau
     ]
     return PredictionResult(customer_id=customer_id, as_of=as_of, recommendations=recs)
 

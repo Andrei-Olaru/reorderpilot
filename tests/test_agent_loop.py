@@ -155,3 +155,17 @@ def test_chat_handler_returns_api_response(ctx):
     resp = handler(ChatRequest(session_id="s9", message="hi"))
     assert resp.answer == "hello rep" and resp.tool_calls == []
     assert len(store.list_messages(ctx.db_path, "s9")) == 2
+
+
+def test_invented_stock_code_is_filtered_from_final_answer(ctx):
+    llm = ScriptedLLM([tool_reply(call("predict_reorder", {"customer_id": "A"})),
+                       answer("Customer A:\n- P1 (100%)\n- 22423 REGENCY CAKESTAND (90%)")])
+    out = run_turn("Brief me on customer A", llm, ctx)
+    assert out.stop_reason == "answer" and out.removed_codes == ["22423"]
+    assert "22423" not in out.response.answer and "P1 (100%)" in out.response.answer
+
+
+def test_code_mentioned_by_the_rep_is_not_filtered(ctx):
+    llm = ScriptedLLM([answer("Noted: 22423 for customer A.")])
+    out = run_turn("Customer A asked about 22423", llm, ctx)
+    assert out.removed_codes == [] and out.response.answer == "Noted: 22423 for customer A."

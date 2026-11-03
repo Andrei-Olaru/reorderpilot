@@ -1,0 +1,33 @@
+# Keep the build context small and free of secrets/data. Data and the model are mounted as volumes (DECISIONS D11).
+
+# Secrets (.env.example is harmless but not needed in the image)
+.env
+.env.*
+
+# Raw / processed data and model binaries (never baked into the image)
+data/
+artifacts/*
+!artifacts/.gitkeep
+*.xlsx
+*.parquet
+*.db
+*.joblib
+
+# Virtualenvs and caches
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.cache/
+eval/.cache/
+
+# Not needed at runtime
+.git/
+.github/
+.claude/
+.vscode/
+tests/
+docs/

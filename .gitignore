@@ -18,3 +18,9 @@ __pycache__/
 .ruff_cache/
 .cache/
 eval/.cache/
+
+# Raw dataset files if downloaded outside DATA_DIR (must not be redistributed)
+*.xlsx
+# Any .env variant except the template
+.env.*
+!.env.example

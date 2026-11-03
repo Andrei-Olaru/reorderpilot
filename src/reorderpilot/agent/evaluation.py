@@ -7,19 +7,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
+from reorderpilot.agent.grounding import CODE_RE
 from reorderpilot.agent.llm import LLMConfig, OpenAICompatibleLLM
 from reorderpilot.agent.tools import ToolContext
 from reorderpilot.config import EVAL_RESULTS_DIR, get_settings
 from reorderpilot.data.loader import load_transactions
 
-CODE_RE = re.compile(r"\b(\d{5}[A-Z]{0,2})\b")
 SUPPRESSION_WORDS = ("suppress", "overstock", "declin", "hold off", "not recommend", "skip", "exclud", "avoid",
                      "paused", "removed", "not offer", "won't offer", "do not offer")
 

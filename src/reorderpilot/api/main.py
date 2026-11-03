@@ -12,9 +12,8 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Query
 from fastapi import Path as PathParam
-from fastapi.responses import JSONResponse
 
 from reorderpilot.agent.loop import make_chat_handler
 from reorderpilot.api.schemas import (
@@ -34,12 +33,6 @@ DueLister = Callable[[int, date, Path], CustomersDueResult]  # (limit, as_of, db
 ChatHandler = Callable[[ChatRequest], ChatResponse]
 
 app = FastAPI(title="ReorderPilot", version="0.1.0")
-
-
-@app.exception_handler(NotImplementedError)
-def _not_implemented(_: Request, exc: NotImplementedError) -> JSONResponse:
-    """A component another track has not built yet -> 501 with a clear message instead of a 500 stack trace."""
-    return JSONResponse(status_code=501, content={"detail": f"not implemented yet: {exc}"})
 
 
 # ---------- dependencies (overridable in tests) ----------
@@ -76,11 +69,7 @@ def get_due_lister() -> DueLister:
 
 
 def get_chat_handler() -> ChatHandler:
-    """The agent loop entry point. Wired by the agent track (M3); until then the endpoint returns 501."""
-
-    def handler(_: ChatRequest) -> ChatResponse:
-        raise NotImplementedError("agent loop (M3) is not wired into the API")
-
+    """The agent loop entry point (real LLM + real memory.db; tests override this dependency)."""
     return make_chat_handler()
 
 

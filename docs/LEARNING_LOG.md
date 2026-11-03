@@ -158,3 +158,21 @@
 - **Interview Q:** "Why are tool calls stored on each chat message instead of in one 'last tool calls' variable?" →
   So you can audit any past answer, not just the newest one. The data was already returned by `/agent/chat`; we just
   keep it next to the answer it belongs to.
+
+## Cleanup + runtime anti-hallucination guard
+- **What I built:** `agent/grounding.py`. Before the rep sees an answer, the loop scans it for stock-code-shaped tokens
+  (like `85123A`). Any line citing a code that never appeared earlier in the conversation (tool results, the rep's own
+  messages) is removed, and a short note says lines were removed.
+- **Why in code and not just the prompt:** the prompt already says "only use tool data", but an LLM can still ignore it.
+  A check in plain Python runs every time and is easy to test with a fake LLM.
+- **Why filter instead of re-asking the LLM:** re-asking doubles the cost of a bad turn and can fail again. Removing a
+  line is instant and predictable.
+- **A subtle bug avoided:** the note does not repeat the removed codes. Old answers are replayed as history in the next
+  turn, so a code written in the note would look "grounded" and pass the check next time.
+- **Cleanup:** removed `tools.execute_tool` (no callers) and an old 501 stub in `api/main.py` left over from before the
+  agent was wired in. Added `.dockerignore` so `.env`, data, `.venv` and caches never enter the Docker build context
+  (the build context = files sent to Docker when building; anything in it could end up in the image).
+- **What could go wrong:** products named only by description (no code) are not checked; eval D still measures those.
+- **Interview Q:** "Couldn't the model just copy a customer id and call it a product?" → It could print the number, but
+  it can't invent one: the guard only allows codes already in the transcript. Checking that a grounded code is also the
+  *right* product is the eval's job, not the runtime filter's.

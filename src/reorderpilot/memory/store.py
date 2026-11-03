@@ -210,11 +210,11 @@ def active_suppressions(db_path: Path, customer_id: str, as_of: date) -> dict[st
 
     If several active declines exist for one product, the one that expires last wins.
     """
-    events = list_feedback_events(db_path, customer_id, as_of, include_expired=False)
+    events = list_feedback_events(db_path, customer_id, as_of, include_expired=False)   # SQL drops expired ones
     latest: dict[str, FeedbackEventRecord] = {}
     for ev in events:
         if ev.expires_at is None or ev.stock_code is None:
-            continue
+            continue  # no expiry = not a suppressing decline (ordered, price); no stock_code = nothing to hide
         if ev.stock_code not in latest or ev.expires_at > latest[ev.stock_code].expires_at:
             latest[ev.stock_code] = ev
     return {code: f"declined: {ev.reason} (until {ev.expires_at.isoformat()})" for code, ev in latest.items()}
@@ -265,7 +265,10 @@ def read_memory(db_path: Path, customer_id: str, as_of: date) -> MemoryResult:
 
 
 def apply_suppressions(prediction: PredictionResult, db_path: Path, as_of: date) -> PredictionResult:
-    """Return a copy of `prediction` with suppressed items flagged (not removed) and price_sensitive set."""
+    """Return a copy of `prediction` with suppressed items flagged (not removed) and price_sensitive set.
+
+    Flagging instead of deleting keeps the decision visible: the agent can tell the rep *why* an item is missing.
+    """
     suppressed = active_suppressions(db_path, prediction.customer_id, as_of)
     recs = [
         rec.model_copy(update={"suppressed": True, "suppressed_reason": suppressed[rec.stock_code]})

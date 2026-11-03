@@ -1,6 +1,10 @@
 """Hand-written agent loop: call LLM, run tool calls, append results, repeat (max 6 steps).
 
 No framework on purpose: every step is visible here and testable with a scripted fake LLM.
+
+One step = one LLM call. If the reply has tool calls, we run them, append their results to the transcript and loop;
+if it has none, that text is the final answer, which first passes the grounding guard (agent/grounding.py).
+Every failure path ends with a fixed, polite answer and a `stop_reason`, never an exception.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from dataclasses import dataclass, field
 from langsmith import traceable, tracing_context
 
 from reorderpilot.agent import tools
+from reorderpilot.agent.grounding import enforce_grounding, grounded_codes
 from reorderpilot.agent.llm import ChatModel, LLMError, MalformedToolCallError
 from reorderpilot.agent.prompts import PROMPT_VERSION, system_prompt
 from reorderpilot.api.schemas import ChatRequest, ChatResponse, ToolCallRecord
@@ -35,11 +40,14 @@ class TurnResult:
     messages: list[dict] = field(default_factory=list)       # full transcript sent to the LLM
     steps: int = 0
     stop_reason: str = "answer"   # answer | max_steps | malformed | llm_error
+    removed_codes: list[str] = field(default_factory=list)   # invented stock codes the grounding guard filtered out
 
 
 def _run_tool_call(call: dict, ctx: tools.ToolContext, out: TurnResult) -> tuple[dict, bool]:
     """Execute one tool call -> (tool message, args_were_malformed)."""
     name, raw = call["function"]["name"], call["function"].get("arguments")
+    # Bad JSON is reported back to the LLM as the tool's answer (every tool_call_id needs a reply),
+    # and the caller counts it against the retry budget.
     try:
         args = tools.parse_arguments(raw)
     except ValueError as e:
@@ -55,12 +63,14 @@ def _run_tool_call(call: dict, ctx: tools.ToolContext, out: TurnResult) -> tuple
 
 @traceable(run_type="tool", name="tool", process_inputs=lambda d: {"name": d["name"], "args": d["args"]})
 def _traced_tool(name: str, args: dict, ctx: tools.ToolContext):
+    """run_tool wrapped in a LangSmith span (a no-op when tracing is off)."""
     return tools.run_tool(name, args, ctx)
 
 
 @traceable(run_type="chain", name="agent.turn", metadata={"prompt_version": PROMPT_VERSION},
            process_inputs=lambda d: {"messages": d["messages"]})
 def _loop(messages: list[dict], llm: ChatModel, ctx: tools.ToolContext, max_steps: int) -> TurnResult:
+    """The step loop itself (mutates `messages`); see the module docstring for the flow."""
     out = TurnResult(response=ChatResponse(answer=""), messages=messages)
     specs, retries_left = tools.get_tool_specs(), MALFORMED_RETRIES
 
@@ -83,14 +93,17 @@ def _loop(messages: list[dict], llm: ChatModel, ctx: tools.ToolContext, max_step
 
         calls = reply.get("tool_calls") or []
         if not calls:
-            return stop("answer", reply.get("content") or "")
+            # Final answer. Anti-hallucination: drop lines citing stock codes not seen earlier in the transcript.
+            safe, out.removed_codes = enforce_grounding(reply.get("content") or "", grounded_codes(messages))
+            return stop("answer", safe)
+        # The assistant message with tool_calls must precede the tool results (OpenAI message format).
         messages.append({"role": "assistant", "content": reply.get("content") or "", "tool_calls": calls})
         malformed = False
         for call in calls:
             msg, bad = _run_tool_call(call, ctx, out)
             messages.append(msg)
             malformed = malformed or bad
-        if malformed:
+        if malformed:  # results are already appended, so the LLM sees the error and can retry next step
             if retries_left == 0:
                 return stop("malformed", MALFORMED_ANSWER)
             retries_left -= 1
