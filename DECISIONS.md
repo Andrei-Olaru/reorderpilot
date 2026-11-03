@@ -25,3 +25,28 @@ Format per entry: context, options considered, choice, why, trade-offs.
   CRUK, S for safety). SP1002 (kid's chalkboard) looked odd but is a real product, kept.
 - **Why:** without (c) every December 2010 order is counted twice, which inflates n_orders and creates 0-day intervals.
 - **Trade-off:** a genuine identical line repeated in one invoice is merged; for "did c buy p" this changes nothing.
+
+## D4 — Evaluation population and metric definitions (2026-11-03)
+- **Context:** SPEC says per-customer metrics use "customers who actually ordered in the window", but a customer who
+  only bought *new* products has no correct answer among the candidates (recall is undefined).
+- **Choice:** per-customer metrics use (cutoff, customer) pairs with >= 3 prior orders and >= 1 re-ordered candidate.
+  precision@5 divides by 5 even if fewer items are shown. B1 recommends only last-order products (empty slots are
+  misses) so it does not quietly turn into B2. Model and baselines are scored on the same pairs. Brier only for the
+  model (baseline scores are not probabilities). How many customers ordered at all is reported in `population`.
+- **Trade-off:** numbers look better than "all customers who ordered anything"; the population counts make that visible.
+
+## D5 — Model selection, calibration and abstention threshold (2026-11-03)
+- **Options:** isotonic vs Platt; tau fixed by hand vs chosen by a rule.
+- **Choice:** 4-config HGB grid, best by validation PR-AUC. Calibrator picked by cross-fitting the two validation
+  months (fit on one, Brier on the other): Platt 0.029191 vs isotonic 0.029218, so Platt; then refit on both months.
+  tau = value maximizing F1 of recommended items on validation (0.08).
+- **Why:** every choice uses validation only; test is touched once in `eval/run_model_eval.py`.
+- **Trade-off:** the gap between calibrators is tiny; on test, calibration slightly hurt (seasonal base-rate shift).
+  F1 is a generic rule; the real tau is a business choice (cost of a wasted call vs a missed sale).
+
+## D6 — Where metrics.json comes from (2026-11-03)
+- **Context:** SPEC 15 says `python -m reorderpilot.model.train` reproduces metrics.json; the task also says test
+  cutoffs are touched only in the final eval script.
+- **Choice:** `train` writes `artifacts/train_report.json` (validation only); `eval/run_model_eval.py` writes
+  `artifacts/metrics.json` (test + a copy of the validation summary). Reproduce = train, then eval.
+- **Trade-off:** two commands instead of one. Needs a SPEC 15 wording update (human decision).
