@@ -24,6 +24,10 @@ eval/.cache/
 # Private study material: never tracked
 docs/*_MASTERY*
 docs/*.html
+docs/DEMO_SCRIPT.md
+# Presentation decks and Office lock files: kept local, never tracked
+*.pptx
+~$*
 
 # Any .env variant except the template
 .env.*
