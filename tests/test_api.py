@@ -1,5 +1,6 @@
 """API endpoints with FastAPI TestClient. The model, agent and DB are replaced via dependency injection."""
 
+import sqlite3
 from datetime import date
 
 import pytest
@@ -128,3 +129,21 @@ def test_chat_endpoint_runs_real_agent_loop_with_fake_llm(client, tmp_path):
     resp = client.post("/agent/chat", json={"session_id": "s1", "message": "hi"})
     assert resp.status_code == 200
     assert resp.json() == {"answer": "loop saw: hi", "tool_calls": [], "trace_url": None}
+
+
+def test_locked_database_returns_503(client):
+    def locked(*_):
+        raise sqlite3.OperationalError("database is locked")
+
+    main.app.dependency_overrides[main.get_due_lister] = lambda: locked
+    resp = TestClient(main.app, raise_server_exceptions=False).get("/customers/due")
+    assert resp.status_code == 503 and "retry" in resp.json()["detail"]
+
+
+def test_missing_model_returns_503(client):
+    def missing(*_):
+        raise FileNotFoundError("model.joblib missing. Run: python -m reorderpilot.model.train")
+
+    main.app.dependency_overrides[main.get_predictor] = lambda: missing
+    resp = TestClient(main.app, raise_server_exceptions=False).get("/predict/12345")
+    assert resp.status_code == 503 and "model.train" in resp.json()["detail"]

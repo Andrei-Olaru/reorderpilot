@@ -106,8 +106,12 @@ class OpenAICompatibleLLM:
         req = self._request(messages, tools)
         cache = self._cache_path(req)
         if cache is not None and cache.exists():
-            self.usage["cache_hits"] += 1
-            return json.loads(cache.read_text(encoding="utf-8"))
+            try:
+                cached = json.loads(cache.read_text(encoding="utf-8"))
+                self.usage["cache_hits"] += 1
+                return cached
+            except (json.JSONDecodeError, OSError):
+                log.warning("ignoring corrupt LLM cache file %s", cache.name)  # fall through to a real call
 
         for attempt in range(self.config.max_retries + 1):
             self._throttle()

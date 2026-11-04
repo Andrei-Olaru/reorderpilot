@@ -65,7 +65,8 @@ def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     """Open a connection (creating tables if needed), commit on success, always close."""
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with closing(sqlite3.connect(db_path)) as conn:
+    # timeout: wait up to 10s for another writer to release a lock instead of failing with "database is locked"
+    with closing(sqlite3.connect(db_path, timeout=10.0)) as conn:
         conn.row_factory = sqlite3.Row
         conn.executescript(_SCHEMA)
         with conn:  # transaction: commit or roll back

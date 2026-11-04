@@ -206,3 +206,16 @@
 - **What could go wrong:** agent evals B-D ran with prompt v1 on small samples; the README says so next to each number.
 - **Interview Q:** "What is a trace?" → A tree of timed steps for one request (the turn, each LLM call, each tool
   call) with inputs and outputs, so you can see *why* the agent answered what it did.
+
+## Final security + robustness audit
+- **What I checked:** no API keys in code, tests, scripts or git history; `.env` is git-ignored and `.env.example`
+  holds only placeholders. Private study files (`docs/*_MASTERY*`, `docs/*.html`) are now git-ignored too.
+- **Locked database:** SQLite now waits up to 10 s for a lock (`sqlite3.connect(..., timeout=10)`) instead of
+  failing right away. If it still fails, the API answers **503** ("busy, retry") instead of a bare 500 stack trace.
+- **Missing model:** if `model.joblib` was never trained, `/predict` answers 503 with the command that fixes it.
+- **Corrupt LLM cache:** a half-written cache file is now skipped and the LLM is called again, instead of crashing.
+- **Invalid JSON bodies** were already handled: FastAPI + Pydantic return 422 with the field that is wrong.
+- **What could go wrong:** the 503 handlers catch *every* `sqlite3.OperationalError`/`FileNotFoundError`, so a real
+  bug (e.g. a typo in a table name) would also look like "busy"; the server log keeps the real message.
+- **Interview Q:** "Why 503 and not 500?" → 500 means "our code is broken"; 503 means "temporarily unavailable,
+  try again", which tells the client (and a load balancer) that retrying makes sense.

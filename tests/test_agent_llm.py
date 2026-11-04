@@ -72,3 +72,13 @@ def test_provider_tool_use_failed_maps_to_malformed_error():
     llm, _ = make_llm([_http_error(openai.BadRequestError, 400, "Error code: 400 - tool_use_failed")])
     with pytest.raises(MalformedToolCallError):
         llm.complete([{"role": "user", "content": "q"}], [])
+
+
+def test_corrupt_cache_file_is_ignored_and_refetched(tmp_path):
+    llm, _ = make_llm([_resp("first"), _resp("fresh")], tmp_path)
+    msgs = [{"role": "user", "content": "q"}]
+    llm.complete(msgs, [])
+    for f in tmp_path.rglob("*.json"):
+        f.write_text("{not json", encoding="utf-8")
+    assert llm.complete(msgs, [])["content"] == "fresh"
+    assert llm.usage["cache_hits"] == 0

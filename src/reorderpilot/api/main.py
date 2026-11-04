@@ -7,13 +7,16 @@ be tested without a trained model, an LLM or the real memory.db.
 
 from __future__ import annotations
 
+import logging
+import sqlite3
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi import Path as PathParam
+from fastapi.responses import JSONResponse
 
 from reorderpilot.agent.loop import make_chat_handler
 from reorderpilot.api.schemas import (
@@ -33,6 +36,23 @@ DueLister = Callable[[int, date, Path], CustomersDueResult]  # (limit, as_of, db
 ChatHandler = Callable[[ChatRequest], ChatResponse]
 
 app = FastAPI(title="ReorderPilot", version="0.1.0")
+log = logging.getLogger(__name__)
+
+
+# ---------- error handlers: readable JSON instead of a bare 500 ----------
+
+@app.exception_handler(sqlite3.OperationalError)
+def _db_unavailable(_: Request, exc: sqlite3.OperationalError) -> JSONResponse:
+    """Memory DB locked or unreadable -> 503 so clients know to retry."""
+    log.warning("memory db error: %s", exc)
+    return JSONResponse(status_code=503, content={"detail": "Memory database is busy or unavailable; retry shortly."})
+
+
+@app.exception_handler(FileNotFoundError)
+def _model_missing(_: Request, exc: FileNotFoundError) -> JSONResponse:
+    """Model artifact not trained yet -> 503 with the fix in the message."""
+    log.warning("missing file: %s", exc)
+    return JSONResponse(status_code=503, content={"detail": f"Model not available: {exc}"})
 
 
 # ---------- dependencies (overridable in tests) ----------

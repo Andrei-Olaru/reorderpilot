@@ -21,6 +21,10 @@ eval/.cache/
 
 # Raw dataset files if downloaded outside DATA_DIR (must not be redistributed)
 *.xlsx
+# Private study material: never tracked
+docs/*_MASTERY*
+docs/*.html
+
 # Any .env variant except the template
 .env.*
 !.env.example
