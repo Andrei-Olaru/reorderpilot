@@ -176,3 +176,19 @@
 - **Interview Q:** "Couldn't the model just copy a customer id and call it a product?" → It could print the number, but
   it can't invent one: the guard only allows codes already in the transcript. Checking that a grounded code is also the
   *right* product is the eval's job, not the runtime filter's.
+
+## Docker: init service, health-ordered start, verification script
+- **What I built:** a third compose service, `init`, that builds the cleaned data and the model only if they are
+  missing, then exits. The API starts only after `init` succeeded; the UI only after the API's health check passes.
+  `scripts/verify_docker.py` builds, starts, and checks three URLs, printing PASS/FAIL.
+- **Bug found:** compose mounted the empty `./data` folder while `.env` pointed somewhere else, so the API had no data.
+  Now the mount uses the same `REORDERPILOT_DATA_DIR` value (compose reads `.env` to fill in `${...}` in the file).
+- **Health check vs "started":** a container counts as "started" as soon as its process runs, even if the web server
+  is still loading. `condition: service_healthy` waits until `/health` actually answers.
+- **Layer caching:** the Dockerfile copies `requirements.txt` and installs packages *before* copying the code, so
+  editing code reuses the cached package layer and rebuilds take seconds.
+- **What could go wrong:** `init` trusts any existing model file, even an old one; delete it to retrain.
+- **Windows gotcha:** Docker Desktop runs a small Linux VM through WSL2; without the "Virtual Machine Platform"
+  feature you get `HCS_E_SERVICE_NOT_AVAILABLE`.
+- **Interview Q:** "Why not train inside the API container on startup?" → Training takes minutes; the API would look
+  unhealthy that whole time and every restart would risk retraining. Separate prepare and serve steps.

@@ -1,18 +1,47 @@
-# Run from the repo root:  docker compose up --build
-#   API -> http://localhost:8000/docs     UI -> http://localhost:8501
-# Before the first run: dataset in ./data/raw/, then build data + model (see README "Run with Docker").
+# From scratch (dataset file in <data dir>/raw/, .env copied from .env.example):
+#   docker compose build
+#   docker compose up          # API -> http://localhost:8000/docs     UI -> http://localhost:8501
+# Start order: init (builds data + model only if missing, then exits) -> api (healthy) -> ui.
+# Check it end to end: python scripts/verify_docker.py
+
+# Shared by every service: one image, same env and volumes.
+x-common: &common
+  image: reorderpilot:latest
+  env_file:
+    - path: .env          # LLM_API_KEY etc.; optional so `docker compose config` works without it
+      required: false
+  environment:
+    REORDERPILOT_DATA_DIR: /data   # inside the container; overrides the host path copied from .env
+  volumes:
+    # Host data dir = REORDERPILOT_DATA_DIR from .env (same folder the local setup uses), default ./data.
+    # Long syntax because Windows paths contain ':' and spaces.
+    - type: bind
+      source: ${REORDERPILOT_DATA_DIR:-./data}   # raw data, transactions.parquet, memory.db, LLM cache
+      target: /data
+    - type: bind
+      source: ./artifacts                        # model.joblib + metrics.json
+      target: /app/artifacts
+
 services:
+  init:
+    <<: *common
+    build: .                 # the only service that builds; api and ui reuse the tag
+    # Idempotent: each step runs only if its output is missing, so restarts take seconds.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        [ -f /data/processed/transactions.parquet ] || python -m reorderpilot.data.loader
+        [ -f /app/artifacts/model.joblib ] || python -m reorderpilot.model.train
+        echo "init: data and model ready"
+
   api:
-    build: .
-    image: reorderpilot:latest
-    env_file:
-      - path: .env          # LLM_API_KEY etc.; optional so `docker compose config` works without it
-        required: false
-    environment:
-      REORDERPILOT_DATA_DIR: /data   # overrides the "./data" value copied from .env
-    volumes:
-      - ./data:/data                 # raw data, transactions.parquet, memory.db, LLM cache
-      - ./artifacts:/app/artifacts   # model.joblib + metrics.json (trained on the host or in the container)
+    <<: *common
+    pull_policy: never       # local image built by `init`, never pulled from a registry
+    depends_on:
+      init:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
     healthcheck:
@@ -20,15 +49,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s      # failures while the app imports pandas/sklearn don't count
 
   ui:
-    image: reorderpilot:latest
+    <<: *common
+    pull_policy: never
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_healthy   # UI only starts once /health answers
+    volumes: []                               # HTTP-only client: no data, no model (DECISIONS D11)
     environment:
       REORDERPILOT_API_URL: http://api:8000   # service name, resolved by Docker's internal DNS
     command: ["streamlit", "run", "app/streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501",
               "--server.headless=true", "--browser.gatherUsageStats=false"]
     ports:
       - "8501:8501"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s

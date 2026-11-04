@@ -159,3 +159,15 @@ Format per entry: context, options considered, choice, why, trade-offs.
   description slips through (eval D still catches those). A whole line is dropped, even if half of it was fine. Because
   the guard rewrites answers, eval D now reflects the guarded output; `removed_codes` shows what the raw LLM did.
   No API contract change (`ChatResponse` is unchanged).
+
+## D15 — Docker: one-shot `init` service and data dir from `.env` (2026-11-04)
+- **Context:** compose mounted `./data`, but `.env` may point `REORDERPILOT_DATA_DIR` elsewhere (it does on the dev
+  machine), so the API container started with no data. Running from scratch also took 4 commands.
+- **Options:** (a) document the manual `docker compose run` steps; (b) build data + model in the API's startup command;
+  (c) a separate one-shot `init` service that the API waits for (`service_completed_successfully`).
+- **Choice:** (c), idempotent (each step runs only if its output file is missing), plus the bind mount source
+  `${REORDERPILOT_DATA_DIR:-./data}` read from the same `.env`. UI waits for the API health check.
+- **Why:** (b) would mix a 3-minute training job into the web server's start and its health check; (c) keeps "prepare"
+  and "serve" separate and makes the whole run `docker compose build` + `docker compose up`.
+- **Trade-offs:** a stale model is not retrained automatically (delete `artifacts/model.joblib` to force it). The
+  existence check is per file, so a half-written file from a crashed run would be trusted; rerun the module by hand.

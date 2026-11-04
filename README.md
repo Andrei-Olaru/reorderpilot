@@ -184,16 +184,24 @@ streamlit run app/streamlit_app.py               # terminal 2 -> http://localhos
 
 ### 2b. Docker run
 
+Prerequisites: `cp .env.example .env` (set `LLM_API_KEY`), and the dataset file in `<data dir>/raw/`, where
+`<data dir>` is `REORDERPILOT_DATA_DIR` from `.env` (default `./data`). Then:
+
 ```bash
-cp .env.example .env                   # set LLM_API_KEY; dataset already in ./data/raw/
 docker compose build
-docker compose run --rm api python -m reorderpilot.data.loader
-docker compose run --rm api python -m reorderpilot.model.train
 docker compose up                      # API http://localhost:8000/docs, UI http://localhost:8501
 ```
 
-`./data` and `./artifacts` are mounted as volumes: the image contains code only, and the data and model stay on
-your disk.
+Start order: `init` → `api` (healthy) → `ui`. `init` builds `transactions.parquet` and the model only if they are
+missing (about 3.5 min the first time), then exits; later starts skip it. The data dir and `./artifacts` are mounted
+as volumes: the image contains code only, and the data and model stay on your disk.
+
+End-to-end check (builds, starts, and tests `/health`, `/customers/due` and the UI health endpoint):
+`python scripts/verify_docker.py` (add `--down` to stop the containers afterwards).
+
+Windows: Docker Desktop needs WSL2. If `wsl --install` fails with `HCS_E_SERVICE_NOT_AVAILABLE`, enable the Windows
+feature "Virtual Machine Platform" (`dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all`) and
+reboot.
 
 ### Evaluation
 
