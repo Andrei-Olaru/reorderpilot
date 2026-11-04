@@ -1,6 +1,6 @@
 # Model evaluation (test cutoffs 2011-09-01, 2011-10-01, 2011-11-01)
 
-Generated 2026-11-03 by `eval/run_model_eval.py`. Customers with < 3 prior orders are abstained (cold start) and excluded from the table; per-customer metrics use only customers who re-ordered >= 1 previously bought product in the 30-day window.
+Generated 2026-11-04 by `eval/run_model_eval.py`. Customers with < 3 prior orders are abstained (cold start) and excluded from the table; per-customer metrics use only customers who re-ordered >= 1 previously bought product in the 30-day window.
 
 | method | precision@5 | recall@5 | hit_rate@5 | pr_auc | roc_auc | brier |
 |---|---|---|---|---|---|---|

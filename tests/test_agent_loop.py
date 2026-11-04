@@ -169,3 +169,18 @@ def test_code_mentioned_by_the_rep_is_not_filtered(ctx):
     llm = ScriptedLLM([answer("Noted: 22423 for customer A.")])
     out = run_turn("Customer A asked about 22423", llm, ctx)
     assert out.removed_codes == [] and out.response.answer == "Noted: 22423 for customer A."
+
+
+def test_trace_url_is_none_when_tracing_is_off(ctx):
+    out = run_turn("hi", ScriptedLLM([answer("hello")]), ctx, tracing=False)
+    assert out.response.trace_url is None
+
+
+def test_trace_url_is_set_from_the_active_run(ctx, monkeypatch):
+    class FakeRun:
+        def get_url(self):
+            return "https://smith.langchain.com/r/abc"
+
+    monkeypatch.setattr("reorderpilot.agent.loop.get_current_run_tree", lambda: FakeRun())
+    out = run_turn("hi", ScriptedLLM([answer("hello")]), ctx, tracing=False)
+    assert out.response.trace_url == "https://smith.langchain.com/r/abc"

@@ -31,3 +31,19 @@ def test_scaffold_imports_config_and_schemas(monkeypatch, tmp_path):
     Recommendation(stock_code="85099B", description="JUMBO BAG RED RETROSPOT", probability=0.4, reason_text="x")
     with pytest.raises(ValidationError):
         FeedbackEvent(customer_id="12345", outcome="maybe")
+
+
+@pytest.mark.parametrize(("env", "expected"), [
+    ({}, False),
+    ({"LANGSMITH_TRACING": "true"}, True),
+    ({"LANGCHAIN_TRACING_V2": "true"}, True),          # legacy name used by many LangSmith guides
+    ({"LANGSMITH_TRACING": "false", "LANGCHAIN_TRACING_V2": "false"}, False),
+])
+def test_tracing_flag_accepts_both_env_names(monkeypatch, env, expected):
+    from reorderpilot.config import get_settings
+
+    for name in ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert get_settings(env_file=None).langsmith_tracing is expected

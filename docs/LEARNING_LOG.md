@@ -192,3 +192,17 @@
   feature you get `HCS_E_SERVICE_NOT_AVAILABLE`.
 - **Interview Q:** "Why not train inside the API container on startup?" → Training takes minutes; the API would look
   unhealthy that whole time and every restart would risk retraining. Separate prepare and serve steps.
+
+## LangSmith tracing check + final README numbers
+- **What I checked:** a real agent turn with tracing on, then read the trace back from LangSmith: one `agent.turn`
+  chain (tagged `prompt_version=v2`) containing an `llm.complete` span. Tool calls get their own `tool` spans.
+- **Bug 1:** the code's on/off switch only read `LANGSMITH_TRACING`. Our switch *overrides* LangSmith's own env check,
+  so `LANGCHAIN_TRACING_V2=true` turned tracing off. Now both names work.
+- **Bug 2:** the UI had an "Open LangSmith trace" button, but the API never filled `trace_url`. Now it does.
+- **Bug 3 (found by bug 2's fix):** a test used the real settings, so every `pytest` run quietly sent traces to
+  LangSmith. `tests/conftest.py` now switches tracing off for all tests. Tests should never call outside services.
+- **README numbers:** re-ran `eval/run_model_eval.py` first, because the model file was newer than the eval file. The
+  numbers came out identical (fixed random seed), so the README table matches the model in `artifacts/`.
+- **What could go wrong:** agent evals B-D ran with prompt v1 on small samples; the README says so next to each number.
+- **Interview Q:** "What is a trace?" → A tree of timed steps for one request (the turn, each LLM call, each tool
+  call) with inputs and outputs, so you can see *why* the agent answered what it did.

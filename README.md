@@ -7,8 +7,6 @@ explains why, **abstains when unsure**, and **learns from the sales rep's feedba
 Built on the public UCI *Online Retail II* dataset (a UK gift wholesaler, 2009-2011). The system runs at a simulated
 "today" of **2011-11-01** (`AS_OF_DATE`), so every result is reproducible.
 
-> Numbers marked **TODO(numbers)** are filled from `eval/results/` after the final evaluation run.
-
 ---
 
 ## 1. What it does, for whom, why this topic
@@ -73,7 +71,12 @@ the prompt. The detailed component diagram, the sequence of one chat turn and th
 - **Wrong product resolved:** fuzzy matching (WRatio) picked wrong items for short names; replaced with word coverage (D9).
 - **My own metric bugs:** a non-ASCII dash (U+2011) and substring product names changed eval results. Lesson: read
   raw answers before trusting an automatic metric.
-- **Prompt scope:** "Who should I call today?" was once refused as out-of-scope (eval D, d01). A prompt v2 is proposed.
+- **Prompt scope:** "Who should I call today?" was refused as out-of-scope (eval D, d01). Fixed in prompt v2 (D12),
+  checked with 5 phrasings against the real LLM; the stored eval D results are still from v1.
+- **Invented product codes:** the prompt says "only use tool data", but a prompt is not a guarantee. A deterministic
+  guard now removes answer lines citing stock codes that no tool returned (D14).
+- **Docker had no data:** compose mounted `./data` while `.env` pointed elsewhere; fixed with a mount driven by the
+  same `.env` value and a one-shot `init` service (D15).
 - <!-- TODO(human): add any problem you hit yourself that is not in the list above -->
 
 ## 5. How I verified it
@@ -82,44 +85,46 @@ All numbers below come from running the scripts in `eval/`; raw outputs are in `
 
 ### A. Model vs baselines (test cutoffs 2011-09-01, 10-01, 11-01)
 
-<!-- TODO(numbers): copy from eval/results/model_eval.md -->
+Eligible = customers with ≥ 3 prior orders; per-customer metrics use the 2,732 (customer, cutoff) pairs that
+re-ordered at least one previously bought product. 1,030,502 candidate pairs, base rate 4.5%.
 
 | method | precision@5 | recall@5 | hit_rate@5 | PR-AUC | ROC-AUC | Brier |
 |---|---|---|---|---|---|---|
-| B1 repeat last order | TODO | TODO | TODO | TODO | TODO | n/a |
-| B2 most frequent | TODO | TODO | TODO | TODO | TODO | n/a |
-| B3 overdue | TODO | TODO | TODO | TODO | TODO | n/a |
-| **HGB calibrated** | TODO | TODO | TODO | TODO | TODO | TODO |
+| B1 repeat last order | 0.311 | 0.171 | 0.702 | 0.117 | 0.703 | n/a |
+| B2 most frequent | 0.333 | 0.191 | 0.751 | 0.162 | 0.716 | n/a |
+| B3 overdue | 0.233 | 0.150 | 0.627 | 0.105 | 0.706 | n/a |
+| **HGB calibrated** | **0.381** | **0.222** | **0.796** | **0.261** | **0.838** | 0.038 |
 
-- Abstention at tau = TODO(numbers): coverage TODO% of customers with history, precision of recommended items TODO.
+- vs the strongest baseline (B2): PR-AUC 0.261 vs 0.162 (+61%), precision@5 0.381 vs 0.333.
+- Abstention at tau = 0.08: coverage 32.3% of customers with history, precision of recommended items 0.203
+  (21,100 items), vs the 4.5% base rate.
 - Plots: [calibration](eval/results/calibration.png), [abstention curve](eval/results/abstention_curve.png).
 
 ### B. Memory ablation (does feedback stop repeat offers?)
 
 Each test customer's top-1 product is logged as `declined / overstocked`, then the agent is asked for a briefing.
 
-<!-- TODO(numbers): copy from eval/results/memory_eval.md (state n and model) -->
+Model `openai/gpt-oss-120b`, prompt v1.
 
-| metric (n = TODO) | memory ON | memory OFF |
+| metric (n = 4 customers) | memory ON | memory OFF |
 |---|---|---|
-| repeat-recommendation rate of the declined item | TODO | TODO |
-| answer mentions the suppression | TODO | TODO |
+| repeat-recommendation rate of the declined item | 0% | 100% |
+| answer mentions the suppression | 100% | 0% |
 
 ### C. Feedback extraction (rep sentence → structured `write_memory`)
 
-<!-- TODO(numbers): copy from eval/results/agent_eval.md -->
-All 4 fields exact: TODO% (n = TODO). Per field: customer_id TODO, outcome TODO, stock_code TODO, reason TODO.
+All 4 fields exact: 83% (n = 6 of the 20 cases, prompt v1). Per field: customer_id 100%, outcome 83%,
+stock_code 100%, reason 100%. The one failure logged "switched supplier" as `asked_alternative` instead of `declined`.
 
 ### D. Agent behaviour scenarios
 
-<!-- TODO(numbers): copy from eval/results/agent_eval.md -->
-Pass rate TODO% (n = TODO) across: due-customers, briefing, explain-why, log-feedback, cold-start abstention,
+Pass rate 90% (n = 10 of the 20 scenarios, prompt v1) across: due-customers, briefing, explain-why, log-feedback, cold-start abstention,
 out-of-scope, malicious-note injection. Checks: expected tools called, no product absent from tool outputs,
-abstention respected.
+abstention respected. The one failure (d01, "who should I call?" refused) is the bug fixed in prompt v2.
 
 ### Tests
 
-`pytest -q`: TODO(numbers) tests, including a leakage test (future rows change no feature), memory policy rules,
+`pytest -q`: 86 tests, including a leakage test (future rows change no feature), memory policy rules,
 API endpoints, the agent loop with a scripted fake LLM (malformed JSON retry, max steps), a malicious-note
 injection test and headless UI tests.
 
@@ -128,14 +133,15 @@ injection test and headless UI tests.
 - One dataset, one retailer, historical data; the "today" is simulated.
 - Test months are the Christmas season: calibration fitted on summer months is slightly off.
 - Cold-start customers (< 3 orders) always get an abstention: no recommendation for new customers.
-- Agent evals B-D were run on small samples because of the free-tier token limit. TODO(numbers): final n.
+- Agent evals B-D were run on small samples because of the free-tier token limit (B n = 4, C n = 6 of 20,
+  D n = 10 of 20), with prompt v1 and before the grounding guard (D14). Treat them as smoke tests, not estimates.
 - Automatic checks miss some errors seen in manual review (e.g. a wrong date in one answer, an invented
   "back in stock" claim). The no-hallucination check covers products, not every sentence.
 - The LLM sometimes skips `read_memory`. Suppression still works, because it is applied inside `predict_reorder`.
 
 ## 6. What I'd do next
 
-- Prompt v2 (scope + outcome definitions), then rerun evals B-D on the full sets.
+- Rerun evals B-D on the full sets with prompt v2 and the grounding guard.
 - Recommend *new* products (cross-sell), not only re-orders; a cold-start model for new customers.
 - Learn suppression lengths from data instead of fixed 30/90 days.
 - Out of scope for this project: authentication, multi-tenant, real CRM integration, voice, cloud deployment,
@@ -143,10 +149,39 @@ injection test and headless UI tests.
 
 ## How I worked with AI agents
 
-The project was built with Claude Code agents working in parallel git worktrees, each limited to one area ("lane"):
-scaffold + contracts (T0), data + model (A), memory + API (B), agent (C), UI + packaging + docs (D).
-`SPEC.md` and `api/schemas.py` were the shared contract, so lanes could work in parallel. Every agent had to write
-tests, log decisions in `DECISIONS.md` and explain its work in `docs/LEARNING_LOG.md`.
+The project was built with AI coding agents (mainly Claude Code) working in parallel, each limited to one area
+("lane"). I wrote the spec, split the work, reviewed and merged.
+
+**1. Contract first (T0).** One scaffold commit created `SPEC.md`, `config.py`, the shared Pydantic models in
+`api/schemas.py` and stub functions for every module. The schemas are the contract between lanes: the API lane could
+build `/predict` against a `PredictionResult` before the model existed, and test it with a fake predictor.
+
+**2. One lane per agent, one git worktree per lane.** A git worktree is a second working folder of the same
+repository on its own branch, so agents edit files in parallel without overwriting each other.
+
+| lane | branch | owns |
+|---|---|---|
+| A — data + model | `feat/model` | cleaning, features, training, calibration, model eval |
+| B — memory + API | `feat/memory-api` | SQLite store, suppression policy, FastAPI endpoints |
+| C — agent | `feat/agent-core` | LLM client, tools, hand-written loop, evals B-D |
+| D — UI + packaging + docs | `feat/ui-docs` | Streamlit app, Docker, README, architecture |
+
+Worktrees share one data folder outside the repo (`REORDERPILOT_DATA_DIR`), because a worktree has no `.env` and raw
+data must not be committed (SPEC section 5).
+
+**3. Prompt isolation.** Each agent got a task prompt naming only its lane's files and the SPEC sections it
+implements; the shared rules live in `CLAUDE.md` / `AGENTS.md` (stay in your lane, never change a contract silently,
+never invent metrics). An agent could read the whole repo but not edit outside its lane, so a contract change had
+to come back to me as a proposal instead of a silent edit.
+
+**4. pytest as the gate.** "Done" meant tests + `ruff` green, plus a `LEARNING_LOG` entry and, for any choice
+between alternatives, a `DECISIONS` entry. Cross-lane pieces were tested against fakes: a scripted fake LLM for the
+agent loop, an injectable predictor and temp SQLite file for the API. When lane C wired the real agent in, the API's
+"501 not implemented" test was replaced by an end-to-end test of the endpoint with a fake LLM.
+
+**5. Handoffs and merging.** Each lane ended with a HANDOFF note in `docs/LEARNING_LOG.md` (done, half-done, next
+steps, how to test), so the next session, or a different tool, could continue. Lane branches were merged into
+`main`; the one real conflict (lanes A + B) was resolved in its own commit.
 
 <!-- TODO(human): write this part in your own words. Suggested points:
 - what you reviewed line by line and what you only skimmed;

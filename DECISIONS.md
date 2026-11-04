@@ -171,3 +171,15 @@ Format per entry: context, options considered, choice, why, trade-offs.
   and "serve" separate and makes the whole run `docker compose build` + `docker compose up`.
 - **Trade-offs:** a stale model is not retrained automatically (delete `artifacts/model.joblib` to force it). The
   existence check is per file, so a half-written file from a crashed run would be trusted; rerun the module by hand.
+
+## D16 — LangSmith: accept both env names, return trace_url, never trace from tests (2026-11-04)
+- **Context:** `run_turn` passes `tracing_context(enabled=settings.langsmith_tracing)`, and that explicit value
+  overrides LangSmith's own env check. The flag read only `LANGSMITH_TRACING`, so `LANGCHAIN_TRACING_V2=true` (the
+  name in many guides) silently disabled tracing. `ChatResponse.trace_url` (SPEC section 9) was never filled. And the
+  API test built a handler from the real settings, so `pytest` sent traces to the developer's LangSmith project.
+- **Options:** (a) drop `tracing_context` and let the SDK read env vars; (b) keep the explicit flag, accept both
+  names; for tests: (c) patch each test, (d) one autouse fixture in `tests/conftest.py`.
+- **Choice:** (b) + (d). `trace_url` is read from the active run (`get_current_run_tree().get_url()`), wrapped so a
+  tracing error can never break an answer.
+- **Why:** an explicit flag in `Settings` is visible and testable; one fixture protects every current and future test.
+- **Trade-offs:** `get_url()` makes one small LangSmith API call per turn when tracing is on (cached per run).

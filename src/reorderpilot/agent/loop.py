@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from langsmith import traceable, tracing_context
+from langsmith import get_current_run_tree, traceable, tracing_context
 
 from reorderpilot.agent import tools
 from reorderpilot.agent.grounding import enforce_grounding, grounded_codes
@@ -67,6 +67,17 @@ def _traced_tool(name: str, args: dict, ctx: tools.ToolContext):
     return tools.run_tool(name, args, ctx)
 
 
+def _trace_url() -> str | None:
+    """LangSmith URL of the current agent.turn trace, or None when tracing is off or the lookup fails."""
+    run = get_current_run_tree()   # None unless we are inside a traced call with tracing enabled
+    if run is None:
+        return None
+    try:
+        return run.get_url()
+    except Exception:  # noqa: BLE001 - a tracing hiccup must never break the answer
+        return None
+
+
 @traceable(run_type="chain", name="agent.turn", metadata={"prompt_version": PROMPT_VERSION},
            process_inputs=lambda d: {"messages": d["messages"]})
 def _loop(messages: list[dict], llm: ChatModel, ctx: tools.ToolContext, max_steps: int) -> TurnResult:
@@ -76,6 +87,7 @@ def _loop(messages: list[dict], llm: ChatModel, ctx: tools.ToolContext, max_step
 
     def stop(reason: str, answer: str) -> TurnResult:
         out.stop_reason, out.response.answer = reason, answer
+        out.response.trace_url = _trace_url()   # shown as "Open LangSmith trace" in the UI
         return out
 
     while out.steps < max_steps:

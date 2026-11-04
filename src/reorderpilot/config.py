@@ -79,5 +79,11 @@ def get_settings(env_file: Path | None = PROJECT_ROOT / ".env") -> Settings:
         llm_base_url=os.environ.get("LLM_BASE_URL", DEFAULT_LLM_BASE_URL),
         llm_api_key=os.environ.get("LLM_API_KEY", ""),
         llm_model=os.environ.get("LLM_MODEL", DEFAULT_LLM_MODEL),
-        langsmith_tracing=os.environ.get("LANGSMITH_TRACING", "false").lower() == "true",
+        langsmith_tracing=_tracing_enabled(),
     )
+
+
+def _tracing_enabled() -> bool:
+    """LangSmith tracing flag: LANGSMITH_TRACING (current SDK name) or LANGCHAIN_TRACING_V2 (legacy name)."""
+    return any(os.environ.get(name, "").strip().strip('"').lower() == "true"
+               for name in ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2"))
