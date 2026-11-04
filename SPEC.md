@@ -206,7 +206,7 @@ reorderpilot/
   app/streamlit_app.py
   eval/{run_model_eval.py,run_memory_eval.py,run_agent_eval.py,scenarios.yaml,results/}
   tests/
-  docs/{architecture.md,LEARNING_LOG.md,DEMO_SCRIPT.md}
+  docs/{architecture.md,LEARNING_LOG.md}
 ```
 
 ## 14. Milestones and cut list
