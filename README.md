@@ -72,7 +72,7 @@ the prompt. The detailed component diagram, the sequence of one chat turn and th
 - **My own metric bugs:** a non-ASCII dash (U+2011) and substring product names changed eval results. Lesson: read
   raw answers before trusting an automatic metric.
 - **Prompt scope:** "Who should I call today?" was refused as out-of-scope (eval D, d01). Fixed in prompt v2 (D12),
-  checked with 5 phrasings against the real LLM; the stored eval D results are still from v1.
+  checked with 5 phrasings against the real LLM; the full eval D rerun on v2 passes all 3 due-customer scenarios.
 - **Invented product codes:** the prompt says "only use tool data", but a prompt is not a guarantee. A deterministic
   guard now removes answer lines citing stock codes that no tool returned (D14).
 - **Docker had no data:** compose mounted `./data` while `.env` pointed elsewhere; fixed with a mount driven by the
@@ -104,27 +104,35 @@ re-ordered at least one previously bought product. 1,030,502 candidate pairs, ba
 
 Each test customer's top-1 product is logged as `declined / overstocked`, then the agent is asked for a briefing.
 
-Model `openai/gpt-oss-120b`, prompt v1.
+Model `openai/gpt-oss-120b`, prompt v2, grounding guard on.
 
-| metric (n = 4 customers) | memory ON | memory OFF |
+| metric (n = 30 customers) | memory ON | memory OFF |
 |---|---|---|
-| repeat-recommendation rate of the declined item | 0% | 100% |
-| answer mentions the suppression | 100% | 0% |
+| repeat-recommendation rate of the declined item | 10% | 100% |
+| answer mentions the suppression | 90% | 0% |
+| `predict_reorder` flagged the item as suppressed | 100% | 0% |
+
+The rule in code worked every time: the tool flagged the declined item in 30 of 30 briefings. But in 3 of 30
+(12908, 16933, 16637) the LLM still listed it with its probability despite `suppressed=true`. I read those raw answers:
+they are real failures, not a metric artefact. An earlier run on n = 4 showed 0%; the larger sample is the honest number.
 
 ### C. Feedback extraction (rep sentence → structured `write_memory`)
 
-All 4 fields exact: 83% (n = 6 of the 20 cases, prompt v1). Per field: customer_id 100%, outcome 83%,
-stock_code 100%, reason 100%. The one failure logged "switched supplier" as `asked_alternative` instead of `declined`.
+Model `openai/gpt-oss-120b`, prompt v2, grounding guard on. All 4 fields exact: 90% (18 of 20 cases). Per field: customer_id 100%, outcome 100%, stock_code 100%, reason 90%.
+Both failures are `asked_alternative` events logged with `reason: other` instead of no reason (c08, c14): the outcome
+and product are right, and an `asked_alternative` reason has no effect on suppression.
 
 ### D. Agent behaviour scenarios
 
-Pass rate 90% (n = 10 of the 20 scenarios, prompt v1) across: due-customers, briefing, explain-why, log-feedback, cold-start abstention,
-out-of-scope, malicious-note injection. Checks: expected tools called, no product absent from tool outputs,
-abstention respected. The one failure (d01, "who should I call?" refused) is the bug fixed in prompt v2.
+Pass rate 95% (19 of 20 scenarios) across: due-customers 3/3, briefing 4/4, explain-why 3/3, log-feedback 3/3,
+cold-start abstention 2/3, out-of-scope 2/2, malicious-note injection 2/2. Checks: expected tools called, no product
+absent from tool outputs, abstention respected. The one failure (d17) is a **false negative of the metric**: the agent
+did abstain ("there isn't enough ordering history"), but the keyword check does not know the phrase "isn't enough".
+I report the automatic score as measured and did not change the check after seeing the result.
 
 ### Tests
 
-`pytest -q`: 86 tests, including a leakage test (future rows change no feature), memory policy rules,
+`pytest -q`: 89 tests, including a leakage test (future rows change no feature), memory policy rules,
 API endpoints, the agent loop with a scripted fake LLM (malformed JSON retry, max steps), a malicious-note
 injection test and headless UI tests.
 
@@ -133,15 +141,20 @@ injection test and headless UI tests.
 - One dataset, one retailer, historical data; the "today" is simulated.
 - Test months are the Christmas season: calibration fitted on summer months is slightly off.
 - Cold-start customers (< 3 orders) always get an abstention: no recommendation for new customers.
-- Agent evals B-D were run on small samples because of the free-tier token limit (B n = 4, C n = 6 of 20,
-  D n = 10 of 20), with prompt v1 and before the grounding guard (D14). Treat them as smoke tests, not estimates.
+- Agent evals B-D run on the full sets (B n = 30, C n = 20, D n = 20) with one model and one run each: good enough
+  to spot failure modes, still small for precise rates (one case = 3-5 percentage points).
+- Suppression is enforced in the tool output, not in the final text: the LLM ignored the `suppressed` flag in 3 of 30
+  briefings (eval B).
 - Automatic checks miss some errors seen in manual review (e.g. a wrong date in one answer, an invented
   "back in stock" claim). The no-hallucination check covers products, not every sentence.
 - The LLM sometimes skips `read_memory`. Suppression still works, because it is applied inside `predict_reorder`.
 
 ## 6. What I'd do next
 
-- Rerun evals B-D on the full sets with prompt v2 and the grounding guard.
+- A deterministic post-check for suppressed items, like the grounding guard: drop answer lines that recommend a
+  product the tool flagged as suppressed (closes the 3/30 gap from eval B).
+- Make the eval D abstention check robust to phrasing (an LLM judge or a structured `abstained` flag), fixing the
+  d17 false negative; rerun the agent evals on more than one model.
 - Recommend *new* products (cross-sell), not only re-orders; a cold-start model for new customers.
 - Learn suppression lengths from data instead of fixed 30/90 days.
 - Out of scope for this project: authentication, multi-tenant, real CRM integration, voice, cloud deployment,
@@ -248,8 +261,6 @@ python eval/run_model_eval.py
 python eval/run_memory_eval.py --limit 5     # LLM evals accept --limit and --model (token budget)
 python eval/run_agent_eval.py --limit 5
 ```
-
-A 4-5 minute demo walkthrough is in [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
 ## Data and attribution
 

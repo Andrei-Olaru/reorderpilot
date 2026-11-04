@@ -219,3 +219,20 @@
   bug (e.g. a typo in a table name) would also look like "busy"; the server log keeps the real message.
 - **Interview Q:** "Why 503 and not 500?" → 500 means "our code is broken"; 503 means "temporarily unavailable,
   try again", which tells the client (and a load balancer) that retrying makes sense.
+
+## Full agent evals on prompt v2 (B n=30, C n=20, D n=20)
+- **What I did:** reran the three LLM evals on the full sets with prompt v2 and the grounding guard on, then updated
+  README and DECISIONS (D17) with the new numbers. About 330K Groq tokens over ~45 minutes; the client
+  hit the 8K tokens/minute limit often and the backoff handled every 429 (no case failed because of the quota).
+- **Results:** B: declined item repeated 10% with memory ON vs 100% OFF, tool flagged it 100%. C: 90% all fields exact
+  (both misses add `reason: other` to an `asked_alternative`). D: 95% (19/20), d01 "who should I call?" now passes.
+- **Lesson 1 (small samples flatter you):** n = 4 said 0% repeats; n = 30 says 10%. One case is 3 points at n = 30,
+  25 points at n = 4. Always ask "out of how many?".
+- **Lesson 2 (code rule vs final text):** the suppression rule in code worked 30/30, but the LLM still listed the item in
+  3 answers. A rule is only enforced where code checks it; here that is the tool output, not the sentence the rep reads.
+- **Lesson 3 (read raw answers):** d17 "failed", but the answer was a correct abstention. The keyword check was too
+  narrow. I kept the measured score and wrote the explanation, instead of editing the check after seeing the result.
+- **What could go wrong:** one model and one run each; rates can move a few points between runs even at temperature 0.
+- **Interview Q:** "Your memory eval used to say 0%, now 10%. What happened?" → The first number came from 4
+  customers. With 30 we found a real failure mode: the LLM sometimes ignores the suppressed flag. The fix is the same
+  idea as the grounding guard: check the final answer in code.

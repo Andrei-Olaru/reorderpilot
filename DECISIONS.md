@@ -183,3 +183,17 @@ Format per entry: context, options considered, choice, why, trade-offs.
   tracing error can never break an answer.
 - **Why:** an explicit flag in `Settings` is visible and testable; one fixture protects every current and future test.
 - **Trade-offs:** `get_url()` makes one small LangSmith API call per turn when tracing is on (cached per run).
+
+## D17 — Full agent evals on prompt v2: report as measured, do not fix the metric afterwards (2026-11-04)
+- **Context:** evals B-D were rerun on the full sets (B n = 30, C n = 20, D n = 20) with prompt v2 and the grounding
+  guard. Eval D's only failure (d17) is a metric false negative: the agent abstained ("there isn't enough ordering
+  history"), but the keyword list in `run_agent_eval.py` has "not enough", not "isn't enough". Eval B showed the LLM
+  ignored the `suppressed` flag in 3 of 30 briefings.
+- **Options:** (a) add "isn't enough" to the keyword list and rerun; (b) report 95% as measured and document the
+  false negative; for B: (c) add a deterministic answer filter for suppressed items now; (d) report and list it as next.
+- **Choice:** (b) and (d).
+- **Why:** changing a check after seeing which case failed is tuning the metric on the test set; the README states the
+  raw score and what manual review found. A new answer filter is a functional change the day before the deadline,
+  and it would need its own tests and a fresh eval run that the free LLM quota cannot cover today.
+- **Trade-offs:** the published D score understates behaviour by one case, and the 3/30 suppression gap stays open
+  until the filter exists (it is the first item in README "What I'd do next").
