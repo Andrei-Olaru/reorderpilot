@@ -50,35 +50,6 @@ Format per entry: context, options considered, choice, why, trade-offs.
 - **Choice:** `train` writes `artifacts/train_report.json` (validation only); `eval/run_model_eval.py` writes
   `artifacts/metrics.json` (test + a copy of the validation summary). Reproduce = train, then eval.
 - **Trade-off:** two commands instead of one. Needs a SPEC 15 wording update (human decision).
-## D3 — Memory visibility: same-day events count (2026-11-03)
-- **Context:** SPEC section 4 says memory lookups use information "strictly before AS_OF_DATE", but section 7 stamps
-  `created_at = AS_OF_DATE`. Taken literally, feedback logged today would be invisible until tomorrow, and the memory
-  ablation (eval B: log a decline, then ask for a briefing at the same date) could never work.
-- **Options:** (a) strict `<` for memory too; (b) `created_at <= as_of` for memory, strict `<` stays for model features.
-- **Choice:** (b). Suppression is active while `as_of < expires_at` (expiry date is exclusive).
-- **Why:** the leakage rule protects the model from future *transactions*; feedback the rep gave today is legitimately
-  known today. Events dated after `as_of` are still invisible (tested).
-- **Trade-off:** a different comparison for memory than for features — documented in `memory/store.py` docstring.
-  **Needs human confirmation** (SPEC wording conflict).
-
-## D4 — Duplicate feedback events are idempotent per simulated day (2026-11-03)
-- **Context:** a double-clicked form or an agent retry can send the same feedback twice.
-- **Options:** (a) store every copy; (b) unique DB constraint and return an error; (c) if an identical event
-  (all fields equal, same `created_at`) exists, return the existing row.
-- **Choice:** (c). The response effect says "duplicate ignored". The same event on a *later* day is a new row, and for
-  overlapping suppressions of one product the latest `expires_at` wins.
-- **Why:** callers (API, agent) never need special error handling, and the audit trail has no noise.
-- **Trade-off:** a rep can't deliberately log the exact same fact twice on one day (no real use for that).
-
-## D5 — Shared memory helpers + dependency injection in the API (2026-11-03)
-- **Context:** both `GET /predict` and the agent tool `predict_reorder` must apply the same suppression policy; the API
-  must be testable while the model and agent are built by other tracks.
-- **Choice:** `memory/store.py` exposes `record_feedback`, `read_memory`, `apply_suppressions` (return existing schemas,
-  no contract change); `agent/tools.py` should call these. The API gets the predictor, due-lister, chat handler, DB path
-  and `as_of` via FastAPI `Depends`, overridden in tests with fakes.
-- **Alternatives:** duplicate policy code in tools and API (drift risk); monkeypatching module globals in tests (brittle).
-- **Trade-off:** suppressed items are *flagged*, not removed, so they still take a slot in `top_k` (auditable, but the
-  rep may see fewer actionable items).
 
 ## D7 — Agent loop: hand-written, malformed-JSON and error policy (2026-11-03)
 - **Context:** SPEC asks for a ~100-150 line loop, max 6 steps, one retry on malformed tool-call JSON, clear errors.
@@ -197,3 +168,35 @@ Format per entry: context, options considered, choice, why, trade-offs.
   and it would need its own tests and a fresh eval run that the free LLM quota cannot cover today.
 - **Trade-offs:** the published D score understates behaviour by one case, and the 3/30 suppression gap stays open
   until the filter exists (it is the first item in README "What I'd do next").
+
+Note: D18-D20 were written on 2026-11-03 by the memory track in parallel with D3-D5 and originally reused those numbers; they were renumbered to keep every ID unique.
+
+## D18 — Memory visibility: same-day events count (2026-11-03)
+- **Context:** SPEC section 4 says memory lookups use information "strictly before AS_OF_DATE", but section 7 stamps
+  `created_at = AS_OF_DATE`. Taken literally, feedback logged today would be invisible until tomorrow, and the memory
+  ablation (eval B: log a decline, then ask for a briefing at the same date) could never work.
+- **Options:** (a) strict `<` for memory too; (b) `created_at <= as_of` for memory, strict `<` stays for model features.
+- **Choice:** (b). Suppression is active while `as_of < expires_at` (expiry date is exclusive).
+- **Why:** the leakage rule protects the model from future *transactions*; feedback the rep gave today is legitimately
+  known today. Events dated after `as_of` are still invisible (tested).
+- **Trade-off:** a different comparison for memory than for features — documented in `memory/store.py` docstring.
+  **Needs human confirmation** (SPEC wording conflict).
+
+## D19 — Duplicate feedback events are idempotent per simulated day (2026-11-03)
+- **Context:** a double-clicked form or an agent retry can send the same feedback twice.
+- **Options:** (a) store every copy; (b) unique DB constraint and return an error; (c) if an identical event
+  (all fields equal, same `created_at`) exists, return the existing row.
+- **Choice:** (c). The response effect says "duplicate ignored". The same event on a *later* day is a new row, and for
+  overlapping suppressions of one product the latest `expires_at` wins.
+- **Why:** callers (API, agent) never need special error handling, and the audit trail has no noise.
+- **Trade-off:** a rep can't deliberately log the exact same fact twice on one day (no real use for that).
+
+## D20 — Shared memory helpers + dependency injection in the API (2026-11-03)
+- **Context:** both `GET /predict` and the agent tool `predict_reorder` must apply the same suppression policy; the API
+  must be testable while the model and agent are built by other tracks.
+- **Choice:** `memory/store.py` exposes `record_feedback`, `read_memory`, `apply_suppressions` (return existing schemas,
+  no contract change); `agent/tools.py` should call these. The API gets the predictor, due-lister, chat handler, DB path
+  and `as_of` via FastAPI `Depends`, overridden in tests with fakes.
+- **Alternatives:** duplicate policy code in tools and API (drift risk); monkeypatching module globals in tests (brittle).
+- **Trade-off:** suppressed items are *flagged*, not removed, so they still take a slot in `top_k` (auditable, but the
+  rep may see fewer actionable items).

@@ -67,7 +67,7 @@
   `api/main.py` (all 6 endpoints). Tests: `tests/test_memory_store.py`, `tests/test_api.py` (31 tests). `pytest -q`.
 - For track C: `agent/tools.py` should call `store.apply_suppressions` / `record_feedback` / `read_memory` (skip
   memory when `ctx.memory_enabled=False`). Wire the agent into the API by changing `get_chat_handler` in `api/main.py`.
-- Open: `/predict` and `/customers/due` return 501 until model/tools are implemented. See DECISIONS D3 (needs confirmation).
+- Open: `/predict` and `/customers/due` return 501 until model/tools are implemented. See DECISIONS D18 (needs confirmation).
 
 ## C — LLM agent: client, tools, loop, prompt, evals (2026-11-03)
 
