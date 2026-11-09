@@ -286,3 +286,41 @@ Note: D18-D20 were written on 2026-11-03 by the memory track in parallel with D3
   the callback keeps the audio engine independent of LangGraph (no import of the graph at module level).
 - **Trade-off:** re-running the full graph per client line repeats the prediction and memory search each time
   (cheap here; for long calls cache the prediction per call).
+
+## D28 — Live Call Copilot runs in the Streamlit process, behind one helper module (2026-11-09)
+- **Context:** milestone V4 needs the graph, the audio engine and memory writes in the UI. Until now the UI was a pure
+  HTTP client of the API, and the human asked not to change API contracts without a proposal.
+- **Options:** (a) the tab calls the graph/audio/store in-process through a small module (`copilot/call_session.py`);
+  (b) new API endpoints (`/copilot/turn`, `/copilot/transcribe`, `/copilot/end_call`) and keep the UI thin.
+- **Choice:** (a), approved by the human ("simple and good").
+- **Why:** no API contract change, no audio upload over HTTP (FastAPI needs `python-multipart` for that, which is not
+  in `requirements.txt`), less code to explain. The boundary is the module, not HTTP: each function there could become
+  a ~5-line endpoint later without a rewrite. The backend is built only when a call starts, so the other tabs never
+  load the model or Chroma. Docker already mounts `/data` and `/app/artifacts` into the `ui` service.
+- **Trade-off:** the UI process now loads the model and the Chroma embedding model (~80 MB) for this tab; the "UI shows
+  exactly what the API sees" claim holds for the chat and memory tabs only. Switch to (b) when several users share one
+  deployment or the UI is deployed apart from the data.
+
+## D29 — One stepper for all three call inputs, built on `live_session` (2026-11-09)
+- **Context:** the tab has three inputs (simulated feed, uploaded audio, pasted transcript) and must re-run the graph
+  after each CLIENT line only.
+- **Options:** (a) separate logic per input; (b) every input produces a list of lines, which is replayed through
+  `live_session(simulated_feed(lines), runner)` with "Next line" / "Play to end" buttons.
+- **Choice:** (b). The generator is kept in `st.session_state` between reruns.
+- **Why:** one code path to test; it reuses the V3 functions unchanged, so "only after CLIENT lines" is the same rule
+  the CLI uses. The runner turns any error into `{"error": ...}` so one failed turn shows an `st.error` and the call
+  continues (a generator that raises is finished for good).
+- **Trade-off:** an uploaded call is transcribed in full first, then replayed (no real-time streaming); a generator in
+  session state is not serializable, so it would not survive a server restart (fine for a demo).
+
+## D30 — Call note is pre-filled from the client's own words, not summarised by the LLM (2026-11-09)
+- **Context:** "End call & persist" saves a note to memory; later calls retrieve it and show it to the copilot.
+- **Options:** (a) an LLM summary of the call; (b) a deterministic note: date + the client's lines verbatim (max 500
+  chars), editable by the rep before saving.
+- **Choice:** (b). Declined products are chosen from the latest unsuppressed recommendations and saved as `declined`
+  feedback events through `store.record_feedback`, so the v1 suppression policy applies unchanged.
+- **Why:** an LLM summary could invent facts (see the V3 open item: a card once promised "on-time delivery"), and a
+  saved invention would come back in every later call as "memory". Verbatim client text is grounded by construction.
+- **Trade-off:** notes are longer and less polished than a summary; long calls are cut at 500 chars (the store limit).
+  After saving, the tab syncs Chroma from SQLite and reports whether the note ranks in the top 3 for this call's client
+  lines, which is the same search the next call runs.

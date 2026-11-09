@@ -293,3 +293,26 @@
 - **Interview Q:** "Why not real acoustic diarization (voice fingerprints)?" -> Tools like pyannote need PyTorch, a
   Hugging Face token and ideally a GPU. For a demo that only needs two roles, text rules + an optional LLM check are
   free, testable and easy to explain; I would switch if measured accuracy on real calls were too low.
+
+## v2 / V4: Live Call Copilot tab in Streamlit
+- **What I built:** a third tab where the rep picks a customer, plays a call (scripted demo, uploaded audio or pasted
+  text) line by line, and sees "battle cards" (short tips) on the right. After the call, "End call & persist" saves a
+  note and any declined products to memory, then checks that the next call will find the note.
+- **Why the logic sits in `copilot/call_session.py`:** a Streamlit script re-runs top to bottom on every click and is
+  hard to unit-test. Plain functions (run a turn, transcribe an upload, persist the call) are easy to test, and the tab
+  only draws widgets. The tab runs the copilot in-process instead of through new API endpoints (D28).
+- **Re-run only after client lines:** the rep needs help when the *client* says something, so rep lines do not call
+  the LLM. All three inputs become a list of lines replayed by the V3 `live_session` generator (D29).
+- **Memory stays honest:** the note is the client's own words, not an LLM summary, so nothing invented gets saved
+  and comes back in later calls (D30). It is written to SQLite through `store.py`; Chroma (the vector index) is only
+  re-synced from SQLite, never written directly.
+- **Errors:** audio, transcription and LLM errors are caught at the UI boundary and shown as one red line; the full
+  traceback goes to the terminal log. If the LLM is down, the graph still shows cards built from the model prediction.
+- **Measured (one real turn, customer 14646, real data + Groq):** route supervisor -> ml_prediction -> vector_memory
+  -> live_copilot -> grounding_guard, 3 cards, 1 memory retrieved, 0 codes removed. One run is a smoke test only.
+- **What could go wrong:** the UI process now loads the model and an ~80 MB embedding model; uploaded calls are
+  transcribed in full before replay (not real time); an LLM card can still promise things that are not in the data
+  (open item, fix proposed for `graph.py`).
+- **Interview Q:** "Why does the UI call Python functions directly instead of your API?" -> For one user it is
+  simpler and avoids changing the API contract; the functions are in one module, so exposing them as endpoints later is
+  a thin wrapper. I would do that once several users share a deployment.
