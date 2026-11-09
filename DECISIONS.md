@@ -200,3 +200,25 @@ Note: D18-D20 were written on 2026-11-03 by the memory track in parallel with D3
 - **Alternatives:** duplicate policy code in tools and API (drift risk); monkeypatching module globals in tests (brittle).
 - **Trade-off:** suppressed items are *flagged*, not removed, so they still take a slot in `top_k` (auditable, but the
   rep may see fewer actionable items).
+
+## D21 — v2 scope: LangGraph + ChromaDB + voice copilot (2026-11-09)
+- **Context:** the human asked for a multi-agent live-call copilot. SPEC section 3 had voice and vector DB out of scope,
+  and D7 chose a hand-written loop over LangGraph.
+- **Options:** (a) keep D7, build nodes as plain functions + TF-IDF memory (no new deps); (b) LangGraph + TF-IDF;
+  (c) LangGraph + ChromaDB as requested.
+- **Choice:** (c), approved by the human, recorded as SPEC section 17. D7 still describes v1 (`agent/loop.py`).
+- **Why:** the v2 goal is to show a real multi-agent graph and semantic retrieval, which are the requested skills.
+- **Trade-off:** two heavy dependencies (Chroma brings onnxruntime and downloads an embedding model on first use);
+  more moving parts to explain in an interview than a 150-line loop.
+
+## D22 — Key failover pool + SQLite response cache (2026-11-09)
+- **Context:** one Groq key = one point of failure; repeated questions in the app cost tokens every time.
+- **Options (pool):** (a) one key + backoff (v1); (b) round-robin every request; (c) stick to one key, fail over only
+  on 429/5xx/timeout with a per-key cooldown. **Options (cache):** (a) JSON file per request (v1, evals);
+  (b) `diskcache` package; (c) one SQLite table via stdlib `sqlite3`.
+- **Choice:** pool (c), cache (c). The eval JSON-file cache stays as it is so existing eval caches remain valid.
+- **Why:** (c) only switches keys when needed and never sleeps while a healthy key exists; SQLite needs no new
+  dependency and is one file that survives restarts. Measured cache hit: median 0.24 ms, p95 0.30 ms (n = 200, local).
+- **Trade-off:** Groq limits are per organization, so keys from the same org do not add quota; using several accounts
+  to dodge limits may break the provider's terms, so the pool is documented as resilience only. The cache key is the
+  full request, so only exact repeats hit (by design: a changed tool result changes the key, so data is never stale).

@@ -236,3 +236,18 @@
 - **Interview Q:** "Your memory eval used to say 0%, now 10%. What happened?" → The first number came from 4
   customers. With 30 we found a real failure mode: the LLM sometimes ignores the suppressed flag. The fix is the same
   idea as the grounding guard: check the final answer in code.
+
+## v2 / V1: Groq key failover pool + SQLite response cache
+- **What I built:** `agent/key_rotator.py`. `GroqKeyRotator` holds several API keys. If a call fails with 429 (rate
+  limit), 5xx (server error) or a timeout, that key "cools down" for a while and the next healthy key is used at once.
+  It sleeps only when every key is cooling. `SQLiteResponseCache` stores LLM answers in one SQLite file.
+- **Why this way:** switching keys only on failure keeps behaviour predictable (one key in normal use). SQLite comes with
+  Python, so no new package; it survives restarts and two processes can share it.
+- **Cache key:** a SHA-256 hash (a fingerprint) of the whole request: model, messages, tools. Same request = same
+  answer at temperature 0. If a tool result changes (e.g. new feedback), the next request differs, so no stale data.
+- **Measured:** cache hit median 0.24 ms (n = 200, my laptop), versus seconds for a real Groq call.
+- **What could go wrong:** keys from the same Groq organization share one quota, so more keys do not mean more tokens.
+  A non-retryable error (401 bad key) is raised at once, not rotated, so a typo in a key is visible.
+- **Interview Q:** "Why not rotate keys on every request to spread load?" → Rate limits are per organization, so it
+  would not add quota; it would only make failures harder to trace. Failover on error gives resilience, which is
+  the real goal.

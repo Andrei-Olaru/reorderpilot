@@ -65,6 +65,10 @@ class Settings:
     def llm_cache_dir(self) -> Path:
         return self.data_dir / "llm_cache"
 
+    @property
+    def llm_cache_db(self) -> Path:
+        return self.data_dir / "llm_cache.db"
+
 
 def get_settings(env_file: Path | None = PROJECT_ROOT / ".env") -> Settings:
     """Build Settings from OS env, falling back to `env_file` (pass None to skip .env, e.g. in tests)."""
