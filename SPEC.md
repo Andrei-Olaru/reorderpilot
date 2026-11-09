@@ -257,4 +257,10 @@ Pillars and milestones (one commit + human review after each):
   rotator; `[CLIENT]`/`[SALES_REP]` diarization heuristic (+ optional LLM classifier); simulated feed for demos/tests.
 - **V4 Streamlit tab** "Live Call Copilot": transcript left, battle cards right, "End call & persist" writes feedback
   events (relational suppression rules) and notes (vector store).
+- **V4b Live call page** (approved by the human 2026-11-09 after reviewing V4, which was too slow and not live):
+  static page `app/live/` served by the API at `/live`, plus additive endpoints `GET /copilot/demo`,
+  `POST /copilot/transcribe` (raw audio body, one utterance), `POST /copilot/turn`, `POST /copilot/end_call`, all thin
+  wrappers over `copilot/call_session.py`. Two audio streams (rep = microphone, client = shared call tab), voice
+  detection in the browser, Whisper per utterance, cards re-run after each CLIENT line (one in flight, latest wins).
+  The Streamlit tab stays as a fallback and links to the page. DECISIONS D31-D33.
 - **V5 Docs + tests**: `test_key_rotator.py`, `test_graph.py`, `test_audio_engine.py`; README architecture diagram.

@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 EVAL_RESULTS_DIR = PROJECT_ROOT / "eval" / "results"
+LIVE_UI_DIR = PROJECT_ROOT / "app" / "live"  # static live-call page served by the API at /live
 
 # Fixed, not environment-driven (SPEC section 6).
 RANDOM_SEED = 42

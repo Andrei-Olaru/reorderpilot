@@ -324,3 +324,47 @@ Note: D18-D20 were written on 2026-11-03 by the memory track in parallel with D3
 - **Trade-off:** notes are longer and less polished than a summary; long calls are cut at 500 chars (the store limit).
   After saving, the tab syncs Chroma from SQLite and reports whether the note ranks in the top 3 for this call's client
   lines, which is the same search the next call runs.
+
+## D31 — Real-time copilot as a dedicated page + `/copilot` API endpoints (2026-11-09)
+- **Context:** the human tried the V4 Streamlit tab and found it slow and not what they meant: they want the copilot
+  to *hear* a call and suggest what to say in real time. Measured cause: every click re-ran the whole Streamlit
+  script, and the client's line only appeared after the LLM finished (LLM 1.2-3.7 s + up to 2.4 s client-side
+  throttle + ~0.6 s data/Chroma + ~0.3 s API calls of the other tabs). Streamlit cannot keep a microphone stream open
+  or push updates.
+- **Options:** (a) polish the Streamlit tab (fragments, background thread, push-to-record `st.audio_input`);
+  (b) a dedicated HTML/CSS/JS page served by FastAPI + 4 additive endpoints; (c) a streaming speech-to-text vendor
+  (word-by-word captions; new account, key, cost, dependencies).
+- **Choice:** (b), approved by the human. D28 still describes the Streamlit tab, which stays as a fallback.
+- **Why:** the browser can listen continuously and update the page without reloading; the endpoints are thin wrappers
+  over `call_session.py`, so there is still one implementation. No new Python dependency (raw audio request body
+  instead of multipart upload), no npm/build step (plain ES module).
+- **Trade-off:** a second UI to maintain (HTML/JS is not covered by pytest beyond "the files are served"; the voice
+  detection + WAV encoder were checked by running the page's own code in Node on the demo call); "real time" means per
+  utterance, not per word. **Measured (one run, local API + Groq, demo call, customer 14646):** transcription
+  0.21-0.64 s per utterance; cards 1.6-2.6 s cold, 0.7-0.8 s warm after the client's line.
+
+## D32 — Two audio streams, energy-based voice detection in the browser, 16 kHz WAV per utterance (2026-11-09)
+- **Context:** the live page must know who speaks and send Whisper short pieces of speech.
+- **Options (speaker):** one mic + text heuristic (D26); push-to-talk; two streams (rep = microphone, client = the
+  call's browser tab via screen-share with "share tab audio"). **Options (cutting audio):** MediaRecorder webm chunks;
+  raw samples (AudioWorklet) + our own WAV encoder. **Options (voice detection):** a neural VAD (e.g. Silero, needs an
+  ONNX runtime in the browser = new dependency); RMS energy above an adaptive noise floor.
+- **Choice:** two streams (one mic + guessing as fallback, labelled `AUTO`); raw samples + WAV; energy detection
+  (start after ~85 ms above 3x the noise floor, end after a 700 ms pause, cut at 15 s, keep 300 ms of pre-roll).
+- **Why:** two streams give exact speaker labels with no model; WAV can be cut anywhere and include the pre-roll
+  (webm chunks after the first are not playable on their own); energy detection is 20 lines and explainable.
+  While the client speaks (and 300 ms after) the rep mic is ignored, so call audio leaking from the speakers into the
+  mic is not transcribed twice. Whole-utterance phrases Whisper invents on silence ("Thank you.") are dropped.
+- **Trade-off:** energy detection also fires on loud noise and splits a turn at long mid-sentence pauses (demo file:
+  9 utterances for 6 lines); headphones are still recommended. Tab audio sharing works in Chromium browsers (Chrome,
+  Edge), not in every browser. Each utterance is one Whisper request (Groq free tier: 20 requests/min, 10 s minimum
+  billing per request).
+
+## D33 — Card refresh: one request in flight, latest transcript wins (2026-11-09)
+- **Context:** client lines can arrive faster than the copilot answers.
+- **Options:** (a) one request per client line in parallel; (b) debounce (wait for quiet); (c) one request at a time,
+  and when it returns run once more with the newest transcript if lines arrived meanwhile.
+- **Choice:** (c). Old cards stay visible but dimmed while new ones are computed.
+- **Why:** (a) wastes LLM calls and answers can arrive out of order; (b) adds delay on every line. (c) never shows
+  stale-over-fresh cards and costs at most one extra call per burst.
+- **Trade-off:** after a burst the newest cards arrive one LLM round trip later than they would with (a).

@@ -12,9 +12,11 @@ SQLite stays the source of truth (D24): notes are written through store.py only;
 from __future__ import annotations
 
 import logging
+import re
 import tempfile
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from reorderpilot.agent import graph, tools
@@ -64,13 +66,18 @@ def describe_error(exc: Exception) -> str:
     return f"Unexpected error ({type(exc).__name__}): {exc}. Details are in the terminal log."
 
 
+def run_turn(backend: CopilotBackend, customer_id: str, transcript: str) -> dict:
+    """One copilot turn: the whole transcript so far -> final graph state (cards, trail, memories, ...)."""
+    return dict(graph.run_graph(transcript, backend.llm, backend.ctx, backend.memory, customer_id=customer_id,
+                                tracing=backend.tracing))
+
+
 def make_runner(backend: CopilotBackend, customer_id: str) -> Callable[[str], dict]:
     """transcript text -> final graph state, or {"error": "..."} so one failed turn does not end the call."""
 
     def run(text: str) -> dict:
         try:
-            return dict(graph.run_graph(text, backend.llm, backend.ctx, backend.memory, customer_id=customer_id,
-                                        tracing=backend.tracing))
+            return run_turn(backend, customer_id, text)
         except Exception as exc:  # UI boundary: show the error in the tab, keep the full traceback in the log
             logger.exception("copilot turn failed")
             return {"error": describe_error(exc)}
@@ -78,15 +85,63 @@ def make_runner(backend: CopilotBackend, customer_id: str) -> Callable[[str], di
     return run
 
 
+@contextmanager
+def _temp_audio(data: bytes, suffix: str) -> Iterator[Path]:
+    """Write audio bytes to a validated temp file (the audio engine reads files); always deleted afterwards."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / f"call{suffix.lower()}"
+        path.write_bytes(data)
+        audio_engine.validate_audio_file(path)  # fail fast: size/format checked before any key or network setup
+        yield path
+
+
 def transcribe_upload(filename: str, data: bytes, backend: CopilotBackend,
                       llm_labels: bool = False) -> tuple[list[str], str]:
     """Uploaded bytes -> ('[CLIENT] ...' lines, diarization method). The temp copy is always deleted."""
-    suffix = Path(filename).suffix.lower()
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / f"call{suffix}"
-        path.write_bytes(data)
-        audio_engine.validate_audio_file(path)  # fail fast: size/format checked before any key or network setup
+    with _temp_audio(data, Path(filename).suffix) as path:
         return audio_engine.transcribe_call(path, backend.make_rotator(), llm=backend.llm if llm_labels else None)
+
+
+# Whisper "hears" these on near-silence or noise. Dropped only when they are the WHOLE utterance (D32).
+SILENCE_HALLUCINATIONS = frozenset({"thank you", "thanks for watching", "thank you for watching", "you", "bye",
+                                    "subtitles by the amaraorg community", "so"})
+
+
+def is_silence_hallucination(text: str) -> bool:
+    """True if the whole utterance is a phrase Whisper typically invents on silence."""
+    return re.sub(r"[^a-z ]", "", text.lower()).strip() in SILENCE_HALLUCINATIONS
+
+
+AUTO = "AUTO"
+
+
+def guess_speaker(text: str, previous: str | None) -> str:
+    """Microphone-only mode: cue words decide (D26 rules); otherwise the other person than last time speaks."""
+    return audio_engine.cue_speaker(text) or (audio_engine.other(previous) if previous else audio_engine.SALES_REP)
+
+
+def transcribe_utterance(data: bytes, suffix: str, speaker: str, backend: CopilotBackend,
+                         previous: str | None = None) -> str | None:
+    """One utterance -> '[SPEAKER] text', or None if nothing was said.
+
+    `speaker` is CLIENT or SALES_REP when it is known from the audio stream (two-stream mode, exact), or AUTO
+    with only one microphone: then it is guessed from the text and the `previous` speaker.
+    """
+    if speaker not in (*audio_engine.SPEAKERS, AUTO):
+        raise ValueError(f"speaker must be one of {(*audio_engine.SPEAKERS, AUTO)}")
+    with _temp_audio(data, suffix) as path:
+        segments = audio_engine.transcribe(path, backend.make_rotator())
+    text = " ".join(audio_engine.clean_text(s.text) for s in segments).strip()
+    if not text or is_silence_hallucination(text):
+        return None
+    label = guess_speaker(text, previous) if speaker == AUTO else speaker
+    return audio_engine.to_transcript_lines([replace(segments[0], text=text, speaker=label)])[0]
+
+
+def declinable_products(prediction: dict | None) -> dict[str, str]:
+    """stock_code -> description of the products the copilot could offer (unsuppressed recommendations)."""
+    return {r["stock_code"]: r["description"] for r in (prediction or {}).get("recommendations", [])
+            if not r.get("suppressed")}
 
 
 def default_note(lines: list[str], as_of: str) -> str:

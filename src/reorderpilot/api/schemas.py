@@ -6,7 +6,7 @@ Changing a model here changes the contract for every component: propose it to th
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -197,3 +197,68 @@ class ChatResponse(BaseModel):
     answer: str
     tool_calls: list[ToolCallRecord] = Field(default_factory=list)
     trace_url: str | None = None
+
+
+# ---------- Live-call copilot (SPEC section 17, V4b; additive, approved 2026-11-09) ----------
+
+TranscriptLine = Annotated[str, Field(pattern=r"^\[(CLIENT|SALES_REP)\] \S", max_length=2000)]
+Speaker = Literal["CLIENT", "SALES_REP"]
+
+
+class CopilotTurnRequest(BaseModel):
+    """The whole call so far; the copilot re-reads it each turn (the graph is stateless between turns)."""
+
+    customer_id: CustomerId = Field(min_length=1, max_length=20, pattern=r"^[0-9A-Za-z]+$")
+    transcript: list[TranscriptLine] = Field(min_length=1, max_length=300)
+
+
+class BattleCard(BaseModel):
+    title: str
+    say: str
+    evidence: str = ""
+
+
+class MemoryUsed(BaseModel):
+    text: str
+    source: str
+    created_at: date
+    distance: float
+
+
+class ProductOption(BaseModel):
+    stock_code: str
+    description: str
+
+
+class CopilotTurnResponse(BaseModel):
+    cards: list[BattleCard]
+    trail: list[str]
+    stop_reason: str
+    removed_codes: list[str] = Field(default_factory=list)
+    memories: list[MemoryUsed] = Field(default_factory=list)
+    declinable: list[ProductOption] = Field(default_factory=list)  # unsuppressed recommendations (end-call form)
+    price_sensitive: bool = False
+    suggested_note: str
+    latency_ms: int
+
+
+class TranscribeResponse(BaseModel):
+    line: str | None  # None: nothing was said (silence, or a phrase Whisper invents on silence)
+    latency_ms: int
+
+
+class EndCallRequest(BaseModel):
+    customer_id: CustomerId = Field(min_length=1, max_length=20, pattern=r"^[0-9A-Za-z]+$")
+    transcript: list[TranscriptLine] = Field(default_factory=list, max_length=300)
+    note: str = Field(min_length=1, max_length=500)
+    declined: list[str] = Field(default_factory=list, max_length=10)
+    reason: Reason = "overstocked"
+
+
+class EndCallResponse(BaseModel):
+    note: CustomerNote
+    effects: list[str]
+    vector_indexed: bool
+    vector_rank: int | None = None
+    vector_distance: float | None = None
+    vector_error: str | None = None  # the note is saved even when the index check fails

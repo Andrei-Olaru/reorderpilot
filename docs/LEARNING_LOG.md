@@ -316,3 +316,25 @@
 - **Interview Q:** "Why does the UI call Python functions directly instead of your API?" -> For one user it is
   simpler and avoids changing the API contract; the functions are in one module, so exposing them as endpoints later is
   a thin wrapper. I would do that once several users share a deployment.
+
+## v2 / V4b: Real-time live call page (/live)
+- **What I built:** a web page (plain HTML, CSS and JavaScript, served by the API at `/live`) that listens to a call
+  while it happens. Your microphone is "the rep"; the browser tab of the call (shared with "share tab audio") is
+  "the client". When someone stops talking, that piece of speech is transcribed and shown; after each client sentence
+  the copilot shows fresh battle cards.
+- **Why not Streamlit:** Streamlit re-runs the whole script on every click and cannot keep a microphone open, so the
+  V4 tab felt slow (the client's line appeared only after the LLM answered). The page updates only what changed.
+- **Voice detection (VAD = voice activity detection):** the page measures loudness (RMS) about 23 times a second and
+  learns the background noise level; louder than 3x that = speech, a 0.7 s pause = end of the sentence. Simple and
+  explainable, but loud noise can trigger it and long pauses split a sentence.
+- **Two streams = no guessing:** the speaker is known from which stream the audio came from. With only a microphone
+  the server guesses (cue words, then turn-taking) and the rep can click a line to swap the speaker.
+- **Latest wins:** only one copilot request runs at a time; if the client keeps talking, the next request uses the
+  newest transcript, so the rep never sees old cards replacing newer ones.
+- **Measured (one run, demo call, customer 14646):** text 0.2-0.6 s after a sentence ends; cards 0.7-2.6 s later.
+- **What could go wrong:** cards are only as good as the prompt: in the same run a card again promised "on-time
+  delivery" and ignored "we're overstocked" (open item; prompt fix proposed for `graph.py`). Tab audio sharing works
+  in Chrome/Edge. Whisper sometimes invents "Thank you." on silence; whole-utterance cases are filtered.
+- **Interview Q:** "How do you know who is speaking?" -> Two separate audio streams: the rep's microphone and the
+  call's audio. Each piece of speech comes from one stream, so the label is exact; acoustic speaker recognition would
+  need a heavy model and still make mistakes.

@@ -1,7 +1,8 @@
 """Streamlit UI tests: run the app headless (AppTest) against a fake API, no server/model/LLM needed.
 
 The Live Call Copilot tab runs in-process (D28), so its tests inject a fake CopilotBackend: scripted LLM,
-tiny dataset + fake model, temp memory.db and a Chroma index with an offline word-hash embedding.
+tiny dataset + fake model, temp memory.db and a Chroma index with an offline word-hash embedding
+(the `backend` fixture in conftest.py).
 """
 
 from __future__ import annotations
@@ -14,13 +15,10 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from reorderpilot.agent.llm import LLMError
-from reorderpilot.agent.tools import ToolContext
 from reorderpilot.copilot import audio_engine, call_session
 from reorderpilot.copilot.audio_engine import DEMO_CALL, TranscriptionError
 from reorderpilot.memory import store
-from reorderpilot.memory.vector_store import VectorMemory
-from tests.test_agent_loop import AS_OF, FakeBundle, ScriptedLLM, answer, make_tx
-from tests.test_graph import WordHashEmbedding
+from tests.test_agent_loop import AS_OF, ScriptedLLM, answer
 
 APP = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
 CUSTOMER = "A"   # in make_tx(): buys P1 (LUNCH BAG RED RETROSPOT) regularly
@@ -107,16 +105,6 @@ def test_kpi_cards_show_as_of_and_suppressed_count(fake_api):
 def cards_reply(title: str) -> dict:
     return answer(json.dumps({"cards": [{"title": title, "say": "Lunch bags sell well for you.",
                                          "evidence": "model prediction"}]}))
-
-
-@pytest.fixture
-def backend(tmp_path):
-    """Fake in-process backend: scripted LLM, tiny dataset + fake model, temp memory.db, offline embedding."""
-    tx, bundle = make_tx(), FakeBundle()
-    ctx = ToolContext(as_of=AS_OF, db_path=tmp_path / "memory.db", tx_loader=lambda: tx,
-                      bundle_loader=lambda: bundle)
-    return call_session.CopilotBackend(llm=ScriptedLLM([]), ctx=ctx, make_rotator=lambda: None,
-                                       memory=VectorMemory(tmp_path / "chroma", embedding_function=WordHashEmbedding()))
 
 
 def copilot_app(backend) -> AppTest:

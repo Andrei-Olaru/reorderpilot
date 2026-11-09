@@ -17,8 +17,10 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from reorderpilot.agent.loop import make_chat_handler
+from reorderpilot.api.copilot import router as copilot_router
 from reorderpilot.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -28,7 +30,7 @@ from reorderpilot.api.schemas import (
     PredictionResult,
     WriteMemoryResult,
 )
-from reorderpilot.config import Settings, get_settings
+from reorderpilot.config import LIVE_UI_DIR, Settings, get_settings
 from reorderpilot.memory import store
 
 Predictor = Callable[[str, int, date], PredictionResult]  # (customer_id, top_k, as_of) -> raw model output
@@ -37,6 +39,8 @@ ChatHandler = Callable[[ChatRequest], ChatResponse]
 
 app = FastAPI(title="ReorderPilot", version="0.1.0")
 log = logging.getLogger(__name__)
+app.include_router(copilot_router)  # /copilot/* (SPEC section 17, V4b)
+app.mount("/live", StaticFiles(directory=LIVE_UI_DIR, html=True), name="live")  # the live-call page
 
 
 # ---------- error handlers: readable JSON instead of a bare 500 ----------

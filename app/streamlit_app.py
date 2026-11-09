@@ -551,13 +551,6 @@ def render_battle_cards(call: dict[str, Any]) -> None:
             st.text(m["text"])
 
 
-def declinable_products(call: dict[str, Any]) -> dict[str, str]:
-    """stock_code -> label for the products the copilot could offer (the latest unsuppressed recommendations)."""
-    prediction = (call["state"] or {}).get("prediction") or {}
-    return {r["stock_code"]: f"{r['stock_code']} · {r['description']}"
-            for r in prediction.get("recommendations", []) if not r.get("suppressed")}
-
-
 def end_call(call: dict[str, Any], note: str, declined: list[str], reason: str) -> None:
     """Persist through memory/store.py, then check the vector index; the call closes only if the save worked."""
     backend = copilot_backend()
@@ -581,7 +574,8 @@ def end_call(call: dict[str, Any], note: str, declined: list[str], reason: str) 
 def render_end_call_form(call: dict[str, Any]) -> None:
     """Editable note + declined products -> "End call & persist"; or discard the call without saving."""
     n = len(call["transcript"])  # widget keys change with each line, so the pre-filled note follows the call
-    products = declinable_products(call)
+    products = {code: f"{code} · {desc}" for code, desc in
+                call_session.declinable_products((call["state"] or {}).get("prediction")).items()}
     as_of = copilot_backend().ctx.as_of.isoformat()
     with st.form(f"end_call_{n}", border=True):
         st.markdown("##### :material/call_end: End call & persist")
@@ -658,6 +652,12 @@ def render_saved_call(summary: dict[str, Any]) -> None:
 def render_copilot_tab() -> None:
     """Live Call Copilot: pick the call input, step through the call, then persist what was learned."""
     customer_id = st.session_state.customer_id.strip()
+    with st.container(border=True):
+        left, right = st.columns([3, 1], vertical_alignment="center")
+        left.markdown("**Real-time version:** the live page listens to your microphone and the call's tab audio and "
+                      "updates the cards while you talk (D31).")
+        right.link_button("Open live page", st.session_state.api_url.rstrip("/") + "/live/",
+                          icon=":material/open_in_new:", type="primary", width="stretch")
     if st.session_state.call_saved:
         render_saved_call(st.session_state.call_saved)
     if not customer_id:
