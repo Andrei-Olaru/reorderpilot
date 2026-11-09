@@ -236,3 +236,105 @@
 - **Interview Q:** "Your memory eval used to say 0%, now 10%. What happened?" → The first number came from 4
   customers. With 30 we found a real failure mode: the LLM sometimes ignores the suppressed flag. The fix is the same
   idea as the grounding guard: check the final answer in code.
+
+## v2 / V1: Groq key failover pool + SQLite response cache
+- **What I built:** `agent/key_rotator.py`. `GroqKeyRotator` holds several API keys. If a call fails with 429 (rate
+  limit), 5xx (server error) or a timeout, that key "cools down" for a while and the next healthy key is used at once.
+  It sleeps only when every key is cooling. `SQLiteResponseCache` stores LLM answers in one SQLite file.
+- **Why this way:** switching keys only on failure keeps behaviour predictable (one key in normal use). SQLite comes with
+  Python, so no new package; it survives restarts and two processes can share it.
+- **Cache key:** a SHA-256 hash (a fingerprint) of the whole request: model, messages, tools. Same request = same
+  answer at temperature 0. If a tool result changes (e.g. new feedback), the next request differs, so no stale data.
+- **Measured:** cache hit median 0.24 ms (n = 200, my laptop), versus seconds for a real Groq call.
+- **What could go wrong:** keys from the same Groq organization share one quota, so more keys do not mean more tokens.
+  A non-retryable error (401 bad key) is raised at once, not rotated, so a typo in a key is visible.
+- **Interview Q:** "Why not rotate keys on every request to spread load?" → Rate limits are per organization, so it
+  would not add quota; it would only make failures harder to trace. Failover on error gives resilience, which is
+  the real goal.
+
+## v2 / V2: LangGraph multi-agent graph + ChromaDB vector memory
+- **What I built:** `agent/graph.py`, a LangGraph *state graph*: a flowchart where each box (node) is a Python
+  function that reads a shared dict (the state) and returns only the keys it changes. A supervisor sends chat
+  messages to the old v1 loop and live-call transcripts through ML prediction -> vector memory -> live copilot ->
+  grounding guard. `memory/vector_store.py` wraps ChromaDB, a *vector database* (it stores text as lists of numbers
+  called embeddings, so "delivery was late" can find "parcel arrived 5 days late" even without shared words).
+- **Why this way:** the router is plain code (`[CLIENT]` tags = live call) because the input already tells us the
+  route; an LLM there would only add cost and failure risk. Chat reuses `run_turn`, so v1 evals stay valid.
+- **SQLite is still the truth:** Chroma is only an index rebuilt from SQLite with stable ids, so syncing twice adds
+  nothing (*idempotent*). Suppression rules stay in SQL, because a fuzzy search must never decide what to hide.
+- **No leakage:** each memory stores its simulated day as a number (20111101) and search keeps only days <= as_of.
+- **Reducer:** `trail` is declared with `operator.add`, so each node appends its name instead of overwriting; tests
+  assert the exact route, e.g. `supervisor, ml_prediction, vector_memory, live_copilot, grounding_guard`.
+- **Measured (one real run, customer 14646):** the query "your last delivery was really late" ranked the delivery
+  note first (cosine distance 0.35) above the Christmas note (0.74); 2 cards, 0 codes removed.
+- **What could go wrong:** the LLM may return prose instead of JSON -> deterministic fallback cards from the model;
+  the default embedding model downloads ~80 MB on first use; sync re-embeds notes every turn (fine at small scale).
+- **Interview Q:** "Why LangGraph if your router is an if-statement?" -> The graph makes the multi-step flow explicit,
+  inspectable (Mermaid diagram, LangSmith traces per node) and easy to extend with new branches; the routing logic
+  itself should stay as simple as the problem allows.
+
+## v2 / V3: Audio engine (transcription + speaker labels + simulated feed)
+- **What I built:** `copilot/audio_engine.py` turns a recorded sales call into lines like `[CLIENT] your prices went up`
+  that the LangGraph copilot already understands. Three steps: check the file, transcribe it with Groq's
+  `whisper-large-v3` (a speech-to-text model), then decide who said each piece (*diarization* = "who spoke when").
+- **Reuse:** the audio request goes through the same `GroqKeyRotator` as chat, so a rate-limited key (HTTP 429) fails
+  over to the next key. The `openai` SDK talks to Groq because Groq copies OpenAI's API shape; no new package.
+- **Fail early:** Groq accepts at most 25 MB on the free tier and 9 formats. The size is checked on disk *before*
+  uploading, so a 40 MB file gets a clear "compress or split it" error instead of a slow upload and a cryptic HTTP 413.
+- **Speaker heuristic:** Whisper writes down words but not who said them. Rules: cue words ("your prices" = client,
+  "let me check" = rep), the rep speaks first (they place the call), a question or a 1-second pause hands the turn over.
+  `--llm-diarize` asks the chat LLM instead; if its reply is not valid JSON with one label per piece, the rules are used.
+- **Measured (one synthetic two-voice call made with Windows text-to-speech):** rules got 5 of 6 pieces right, the
+  LLM 6 of 6. One file only proves it runs; it is not an accuracy benchmark.
+- **Simulated feed:** a scripted call that yields one line at a time (a *generator*), so demos and tests need no audio
+  or network. After each client line the graph re-runs and prints fresh battle cards.
+- **What could go wrong:** real people pause mid-sentence and rarely use cue words, so the rules mislabel more; audio is
+  sent to Groq (privacy); calls over 25 MB must be split by hand; anything under 10 s is billed as 10 s.
+- **Interview Q:** "Why not real acoustic diarization (voice fingerprints)?" -> Tools like pyannote need PyTorch, a
+  Hugging Face token and ideally a GPU. For a demo that only needs two roles, text rules + an optional LLM check are
+  free, testable and easy to explain; I would switch if measured accuracy on real calls were too low.
+
+## v2 / V4: Live Call Copilot tab in Streamlit
+- **What I built:** a third tab where the rep picks a customer, plays a call (scripted demo, uploaded audio or pasted
+  text) line by line, and sees "battle cards" (short tips) on the right. After the call, "End call & persist" saves a
+  note and any declined products to memory, then checks that the next call will find the note.
+- **Why the logic sits in `copilot/call_session.py`:** a Streamlit script re-runs top to bottom on every click and is
+  hard to unit-test. Plain functions (run a turn, transcribe an upload, persist the call) are easy to test, and the tab
+  only draws widgets. The tab runs the copilot in-process instead of through new API endpoints (D28).
+- **Re-run only after client lines:** the rep needs help when the *client* says something, so rep lines do not call
+  the LLM. All three inputs become a list of lines replayed by the V3 `live_session` generator (D29).
+- **Memory stays honest:** the note is the client's own words, not an LLM summary, so nothing invented gets saved
+  and comes back in later calls (D30). It is written to SQLite through `store.py`; Chroma (the vector index) is only
+  re-synced from SQLite, never written directly.
+- **Errors:** audio, transcription and LLM errors are caught at the UI boundary and shown as one red line; the full
+  traceback goes to the terminal log. If the LLM is down, the graph still shows cards built from the model prediction.
+- **Measured (one real turn, customer 14646, real data + Groq):** route supervisor -> ml_prediction -> vector_memory
+  -> live_copilot -> grounding_guard, 3 cards, 1 memory retrieved, 0 codes removed. One run is a smoke test only.
+- **What could go wrong:** the UI process now loads the model and an ~80 MB embedding model; uploaded calls are
+  transcribed in full before replay (not real time); an LLM card can still promise things that are not in the data
+  (open item, fix proposed for `graph.py`).
+- **Interview Q:** "Why does the UI call Python functions directly instead of your API?" -> For one user it is
+  simpler and avoids changing the API contract; the functions are in one module, so exposing them as endpoints later is
+  a thin wrapper. I would do that once several users share a deployment.
+
+## v2 / V4b: Real-time live call page (/live)
+- **What I built:** a web page (plain HTML, CSS and JavaScript, served by the API at `/live`) that listens to a call
+  while it happens. Your microphone is "the rep"; the browser tab of the call (shared with "share tab audio") is
+  "the client". When someone stops talking, that piece of speech is transcribed and shown; after each client sentence
+  the copilot shows fresh battle cards.
+- **Why not Streamlit:** Streamlit re-runs the whole script on every click and cannot keep a microphone open, so the
+  V4 tab felt slow (the client's line appeared only after the LLM answered). The page updates only what changed.
+- **Voice detection (VAD = voice activity detection):** the page measures loudness (RMS) about 23 times a second and
+  learns the background noise level; louder than 3x that = speech, a 0.7 s pause = end of the sentence. Simple and
+  explainable, but loud noise can trigger it and long pauses split a sentence.
+- **Two streams = no guessing:** the speaker is known from which stream the audio came from. With only a microphone
+  the server guesses (cue words, then turn-taking) and the rep can click a line to swap the speaker.
+- **Latest wins:** only one copilot request runs at a time; if the client keeps talking, the next request uses the
+  newest transcript, so the rep never sees old cards replacing newer ones.
+- **Measured (one run, demo call, customer 14646):** text 0.2-0.6 s after a sentence ends; cards 0.7-2.6 s later.
+- **What could go wrong:** cards are only as good as the prompt: in the same run a card again promised "on-time
+  delivery" and ignored "we're overstocked" (open item; prompt fix proposed for `graph.py`). Tab audio sharing works
+  in Chrome/Edge. Whisper sometimes invents "Thank you." on silence; whole-utterance cases are filtered.
+- **Interview Q:** "How do you know who is speaking?" -> Two separate audio streams: the rep's microphone and the
+  call's audio. Each piece of speech comes from one stream, so the label is exact; acoustic speaker recognition would
+  need a heavy model and still make mistakes.

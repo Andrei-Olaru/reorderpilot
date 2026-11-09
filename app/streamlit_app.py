@@ -1,21 +1,30 @@
-"""Streamlit UI (SPEC section 10): chat with per-answer tool executions, KPI row, customer memory dashboard.
+"""Streamlit UI (SPEC sections 10 and 17): chat with per-answer tool executions, KPI row, customer memory dashboard,
+and the v2 "Live Call Copilot" tab.
 
-The UI is a thin HTTP client of the FastAPI backend: it never loads the model or opens memory.db itself,
-so everything shown here is exactly what the API (and therefore the agent) sees.
+The chat and memory tabs are a thin HTTP client of the FastAPI backend, so they show exactly what the API sees.
+The Live Call Copilot tab runs the LangGraph copilot in this process through copilot/call_session.py (D28): it loads
+the model, memory.db and the Chroma index only when a call starts, and writes notes through memory/store.py.
 Run: `streamlit run app/streamlit_app.py` (API URL from env `REORDERPILOT_API_URL`, default http://localhost:8000).
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import uuid
 from typing import Any, get_args
 
 import httpx
 import streamlit as st
 
+from reorderpilot.agent.graph import MEMORY_K, parse_transcript
 from reorderpilot.api.schemas import Outcome, Reason
+from reorderpilot.copilot import call_session
+from reorderpilot.copilot.audio_engine import DEMO_CALL, SUPPORTED_FORMATS, live_session, simulated_feed
+
+logger = logging.getLogger("reorderpilot.app")
 
 DEFAULT_API_URL = os.environ.get("REORDERPILOT_API_URL", "http://localhost:8000")
 CHAT_TIMEOUT_S = 180.0  # an agent turn can wait on the LLM rate limiter
@@ -28,6 +37,10 @@ QUICK_PROMPTS = [
     "Which products are suppressed for customer 16121?",
 ]
 AVATARS = {"user": ":material/person:", "assistant": ":material/support_agent:"}
+CALL_SOURCES = ["Simulated call", "Upload audio", "Paste transcript"]
+SPEAKER_BADGES = {"CLIENT": ":orange-badge[Client]", "SALES_REP": ":blue-badge[Rep]"}
+TRANSCRIPT_HEIGHT_PX = 380
+MARKDOWN_SPECIAL = re.compile(r"([\\`*_\[\]$#<>~|])")
 
 # Lightweight styling on top of Streamlit's theme. Colours use translucent greys so light and dark mode both work.
 CSS = """
@@ -95,6 +108,9 @@ def init_state() -> None:
         "customer_id": "",
         "due_customers": [],
         "flash": None,  # one-shot success message shown after a rerun
+        "copilot_backend": None,  # built on the first call (D28); tests put a fake here
+        "call": None,  # the live call in progress (see start_call)
+        "call_saved": None,  # summary of the last "End call & persist"
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -400,6 +416,264 @@ def render_memory_tab(customer: dict[str, Any]) -> None:
         render_feedback_form(customer_id)
 
 
+# ---------- live call copilot tab (SPEC section 17, V4) ----------
+
+def md(text: str) -> str:
+    """Escape Markdown so transcript/LLM text shows literally (e.g. '$5' must not start a formula)."""
+    return MARKDOWN_SPECIAL.sub(r"\\\1", str(text))
+
+
+def copilot_backend() -> call_session.CopilotBackend:
+    """The in-process copilot backend, built on first use only (so other tabs never load the model or Chroma)."""
+    if st.session_state.copilot_backend is None:
+        st.session_state.copilot_backend = call_session.default_backend()
+    return st.session_state.copilot_backend
+
+
+def start_call(customer_id: str, lines: list[str], source: str, method: str | None = None,
+               notice: str | None = None) -> None:
+    """Begin a call: lines are replayed one by one and the graph re-runs after each CLIENT line (D29)."""
+    runner = call_session.make_runner(copilot_backend(), customer_id)
+    st.session_state.call = {
+        "customer_id": customer_id, "source": source, "method": method, "notice": notice, "total": len(lines),
+        "session": live_session(simulated_feed(lines), runner),
+        "transcript": [], "state": None, "state_line": None, "error": None,
+    }
+    st.session_state.call_saved = None
+
+
+def step_call(call: dict[str, Any]) -> None:
+    """Show the next line; after a CLIENT line keep the new graph state (or its error, keeping the old cards)."""
+    line, state = next(call["session"])
+    call["transcript"].append(line)
+    if state is None:
+        return  # rep line: the copilot does not re-run
+    call["error"] = state.get("error")
+    if not call["error"]:
+        call["state"], call["state_line"] = state, len(call["transcript"])
+
+
+def advance_call(call: dict[str, Any], steps: int) -> None:
+    """Advance up to `steps` lines, then redraw."""
+    with st.spinner("Copilot is working (prediction + memory + LLM)…"):
+        for _ in range(steps):
+            if len(call["transcript"]) >= call["total"]:
+                break
+            step_call(call)
+    st.rerun()
+
+
+def load_call_lines(customer_id: str, source: str) -> bool:
+    """Input widgets for one call source; start the call when its button is pressed. True if a call started."""
+    if source == "Simulated call":
+        st.caption("A scripted six-line call: no audio and no network for the transcript (the cards need the LLM).")
+        with st.expander("Script", icon=":material/description:"):
+            st.text("\n".join(DEMO_CALL))
+        if st.button("Start simulated call", key="start_simulated", type="primary", icon=":material/play_arrow:"):
+            start_call(customer_id, list(DEMO_CALL), "simulated call")
+            return True
+    elif source == "Upload audio":
+        upload = st.file_uploader("Recorded call", type=sorted(f.lstrip(".") for f in SUPPORTED_FORMATS),
+                                  key="call_audio")
+        llm_labels = st.checkbox("LLM speaker labels", key="call_llm_labels",
+                                 help="One extra LLM call. Default: keyword + turn-taking heuristic (D26).")
+        st.caption("The audio is sent to Groq Whisper. Files over the upload limit (25 MB) are refused locally.")
+        if st.button("Transcribe & start", key="start_upload", type="primary", icon=":material/graphic_eq:",
+                     disabled=upload is None):
+            with st.spinner("Transcribing with Groq Whisper…"):
+                lines, method = call_session.transcribe_upload(upload.name, upload.getvalue(), copilot_backend(),
+                                                               llm_labels)
+            if not lines:
+                st.warning("No speech was found in the file.")
+                return False
+            start_call(customer_id, lines, "uploaded audio", method=method)
+            return True
+    elif source == "Paste transcript":
+        text = st.text_area("Transcript", key="call_paste", height=180,
+                            placeholder="[SALES_REP] Hi, do you have a minute?\n[CLIENT] Your prices went up.")
+        if st.button("Start from transcript", key="start_paste", type="primary", icon=":material/play_arrow:"):
+            lines = parse_transcript(text)
+            if not lines:
+                st.error("No line starts with [CLIENT] or [SALES_REP].")
+                return False
+            skipped = sum(1 for raw in text.splitlines() if raw.strip()) - len(lines)
+            notice = f"{skipped} line(s) without a [CLIENT]/[SALES_REP] tag were skipped." if skipped else None
+            start_call(customer_id, lines, "pasted transcript", notice=notice)
+            return True
+    return False
+
+
+def render_call_setup(customer_id: str) -> None:
+    """Choose where the call comes from; errors are shown as st.error, never as a traceback."""
+    st.markdown(f"##### :material/call: New call with customer {md(customer_id)}")
+    source = st.segmented_control("Call input", CALL_SOURCES, default=CALL_SOURCES[0], key="call_source")
+    try:
+        started = load_call_lines(customer_id, source)
+    except Exception as exc:  # UI boundary: AudioFileError, TranscriptionError, LLMError, setup errors
+        logger.exception("could not start the call")
+        st.error(call_session.describe_error(exc), icon=":material/error:")
+        return
+    if started:
+        st.rerun()
+
+
+def render_battle_cards(call: dict[str, Any]) -> None:
+    """One bordered box per card, then the graph route, stop reason, grounding removals and memories used."""
+    st.markdown("##### :material/style: Battle cards")
+    if call["error"]:
+        st.error(call["error"], icon=":material/error:")
+    state = call["state"]
+    if state is None:
+        st.caption("Cards appear after the client's first line (rep lines do not re-run the copilot).")
+        return
+    st.caption(f"Updated after line {call['state_line']}")
+    if str(state.get("stop_reason", "")).startswith("fallback"):
+        st.info("The LLM was unavailable or replied badly, so these cards come from the model prediction "
+                "and memory only.", icon=":material/info:")
+    for card in state.get("cards", []):
+        with st.container(border=True):
+            st.markdown(f"**{md(card['title'])}**")
+            st.markdown(md(card["say"]))
+            if card.get("evidence"):
+                st.caption(f"Evidence: {md(card['evidence'])}")
+    if not state.get("cards"):
+        st.caption("(no battle cards)")
+    if state.get("removed_codes"):
+        st.warning("Grounding guard removed cards citing unknown stock codes: " + ", ".join(state["removed_codes"]),
+                   icon=":material/gpp_maybe:")
+    st.caption(f"Route: {' → '.join(state.get('trail', []))}  \nstop_reason: `{state.get('stop_reason')}`")
+    memories = state.get("memories", [])
+    with st.expander(f"Memories used ({len(memories)})", icon=":material/psychology:"):
+        if not memories:
+            st.caption("No notes or objections found for this customer.")
+        for m in memories:
+            st.caption(f"{m['source']} · {m['created_at']} · distance {m['distance']}")
+            st.text(m["text"])
+
+
+def end_call(call: dict[str, Any], note: str, declined: list[str], reason: str) -> None:
+    """Persist through memory/store.py, then check the vector index; the call closes only if the save worked."""
+    backend = copilot_backend()
+    try:
+        saved = call_session.persist_call(backend.ctx, call["customer_id"], note, declined, reason)
+    except Exception as exc:  # e.g. empty note -> ValueError; nothing was written
+        logger.exception("could not save the call")
+        st.error(call_session.describe_error(exc), icon=":material/error:")
+        return
+    try:
+        check: call_session.VectorCheck | str = call_session.check_vector_memory(
+            backend.memory, backend.ctx, saved.note, call["transcript"])
+    except Exception as exc:  # the save itself worked (SQLite); only the index check failed
+        logger.exception("vector memory check failed")
+        check = call_session.describe_error(exc)
+    st.session_state.call_saved = {"customer_id": call["customer_id"], "saved": saved, "check": check}
+    st.session_state.call = None  # closing the call also blocks a double submit
+    st.rerun()
+
+
+def render_end_call_form(call: dict[str, Any]) -> None:
+    """Editable note + declined products -> "End call & persist"; or discard the call without saving."""
+    n = len(call["transcript"])  # widget keys change with each line, so the pre-filled note follows the call
+    products = {code: f"{code} · {desc}" for code, desc in
+                call_session.declinable_products((call["state"] or {}).get("prediction")).items()}
+    as_of = copilot_backend().ctx.as_of.isoformat()
+    with st.form(f"end_call_{n}", border=True):
+        st.markdown("##### :material/call_end: End call & persist")
+        note = st.text_area("Call note (saved to customer memory; edit before saving)", key=f"call_note_{n}",
+                            value=call_session.default_note(call["transcript"], as_of), max_chars=500)
+        declined = st.multiselect("Products the client declined", list(products), format_func=products.get,
+                                  key=f"call_declined_{n}", placeholder="None")
+        reason = st.selectbox("Decline reason", list(get_args(Reason)), key=f"call_reason_{n}",
+                              help="overstocked/seasonal: hidden 30 days; switched_supplier: 90 days; "
+                                   "price: customer marked price-sensitive (product not hidden).")
+        submitted = st.form_submit_button("End call & persist", type="primary", icon=":material/save:",
+                                          disabled=n == 0)
+    if st.button("Discard call", key="call_discard", icon=":material/delete:"):
+        st.session_state.call = None
+        st.rerun()
+    if submitted:
+        end_call(call, note, declined, reason)
+
+
+def render_live_call(call: dict[str, Any]) -> None:
+    """Transcript on the left, battle cards on the right."""
+    done = len(call["transcript"]) >= call["total"]
+    meta = (f"Customer **{md(call['customer_id'])}** · {call['source']} · "
+            f"line {len(call['transcript'])}/{call['total']}")
+    if call["method"]:
+        meta += f" · speaker labels: `{call['method']}`"
+    st.markdown(meta)
+    if call["notice"]:
+        st.warning(call["notice"], icon=":material/warning:")
+    left, right = st.columns([1.2, 1], gap="large")
+    with left:
+        with st.container(height=TRANSCRIPT_HEIGHT_PX, border=True):
+            if not call["transcript"]:
+                st.caption("Press Next line to start the call.")
+            for line in call["transcript"]:
+                tag, _, text = line.partition("] ")
+                st.markdown(f"{SPEAKER_BADGES[tag.lstrip('[')]} {md(text)}")
+        buttons = st.columns(2)
+        if buttons[0].button("Next line", key="call_next", disabled=done, icon=":material/skip_next:",
+                             width="stretch"):
+            advance_call(call, 1)
+        if buttons[1].button("Play to end", key="call_play", disabled=done, icon=":material/fast_forward:",
+                             width="stretch"):
+            advance_call(call, call["total"])
+        render_end_call_form(call)
+    with right:
+        render_battle_cards(call)
+
+
+def render_saved_call(summary: dict[str, Any]) -> None:
+    """What the last "End call & persist" wrote, and whether the next call will find the note."""
+    saved, check = summary["saved"], summary["check"]
+    with st.container(border=True):
+        st.success(f"Call with customer {summary['customer_id']} saved to memory.", icon=":material/task_alt:")
+        st.markdown(f"**Note #{saved.note.id}** ({saved.note.created_at})")
+        st.text(saved.note.note)
+        for code_effect in saved.effects:
+            st.markdown(f"- Declined: {md(code_effect)}")
+        if not saved.effects:
+            st.caption("No declined products recorded.")
+        if isinstance(check, str):
+            st.error(f"Vector memory check failed: {check}", icon=":material/error:")
+        elif check.rank:
+            st.success(f"Vector memory: the note is indexed and ranks {check.rank} of {MEMORY_K} for this call's "
+                       f"client lines (cosine distance {check.distance}), so the next call will retrieve it.",
+                       icon=":material/psychology:")
+        elif check.indexed:
+            st.warning(f"Vector memory: the note is indexed but not in the top {MEMORY_K} for this call's client "
+                       "lines; a later call retrieves it when the client talks about similar things.")
+        else:
+            st.error("Vector memory: the note is not in the index.", icon=":material/error:")
+
+
+def render_copilot_tab() -> None:
+    """Live Call Copilot: pick the call input, step through the call, then persist what was learned."""
+    customer_id = st.session_state.customer_id.strip()
+    with st.container(border=True):
+        left, right = st.columns([3, 1], vertical_alignment="center")
+        left.markdown("**Real-time version:** the live page listens to your microphone and the call's tab audio and "
+                      "updates the cards while you talk (D31).")
+        right.link_button("Open live page", st.session_state.api_url.rstrip("/") + "/live/",
+                          icon=":material/open_in_new:", type="primary", width="stretch")
+    if st.session_state.call_saved:
+        render_saved_call(st.session_state.call_saved)
+    if not customer_id:
+        st.info("Enter or pick a customer ID in the sidebar, then start a call.", icon=":material/person_search:")
+        return
+    call = st.session_state.call
+    if call and call["customer_id"] != customer_id:
+        st.warning(f"The customer changed, so the call with customer {call['customer_id']} was discarded "
+                   "(nothing saved).", icon=":material/warning:")
+        st.session_state.call = call = None
+    if call is None:
+        render_call_setup(customer_id)
+    else:
+        render_live_call(call)
+
+
 # ---------- page ----------
 
 def render_flash() -> None:
@@ -423,11 +697,14 @@ def main() -> None:
     render_header()
     render_flash()
     render_kpis(health, customer)
-    chat_tab, memory_tab = st.tabs([":material/forum: Agent Chat", ":material/database: Customer Memory"])
+    chat_tab, memory_tab, copilot_tab = st.tabs([":material/forum: Agent Chat", ":material/database: Customer Memory",
+                                                 ":material/headset_mic: Live Call Copilot"])
     with chat_tab:
         render_chat_tab()
     with memory_tab:
         render_memory_tab(customer)
+    with copilot_tab:
+        render_copilot_tab()
 
 
 main()

@@ -30,6 +30,8 @@ IN scope:
 
 OUT of scope (mention in "Next steps", do NOT build): voice agent, authentication, multi-tenant,
 deep learning models, vector database, cloud deployment, real CRM integration, MCP server (only if all else is done).
+**v2 amendment (2026-11-09):** voice copilot, vector memory and a LangGraph orchestrator move IN scope on branch
+`feat/v2-enterprise-langgraph`; see section 17. Everything else in this list stays out.
 
 ## 4. Simulated "today"
 
@@ -236,3 +238,29 @@ temporal split, memory policy, evaluation A and B, README with honest limitation
 Add a section "How I worked with AI agents" (honest: what agents did, what I reviewed and corrected).
 Add a "Data and attribution" section: dataset name, source link, authors/DOI as shown on the UCI dataset page, license CC BY 4.0,
 and a note that no raw data is redistributed in the repo.
+
+## 17. v2 amendment: multi-agent live-call copilot (2026-11-09, approved by the human)
+
+Supersedes the "voice agent" and "vector database" items of the OUT list and the "hand-written loop, no framework" rule
+(D7) **for the v2 orchestrator only**. All other rules (no leakage, `AS_OF_DATE` as "today", grounding, honest metrics)
+still apply. Approved new dependencies: `langgraph`, `chromadb` (added in the milestone that first uses them).
+
+Pillars and milestones (one commit + human review after each):
+- **V1 Key failover + response cache** (`agent/key_rotator.py`): `GROQ_API_KEYS=k1,k2,...` (falls back to `LLM_API_KEY`);
+  on 429/5xx/timeout switch to the next non-cooling key, back off only when all keys cool; SQLite response cache
+  (stdlib `sqlite3`) enabled by `LLM_RESPONSE_CACHE=true`. Groq limits are per organization: the pool is for
+  resilience, not for multiplying quota.
+- **V2 LangGraph graph** (`agent/graph.py`): Supervisor (routes chat vs live-call transcript) -> MLPrediction
+  (`model/predict.py`) -> VectorMemory (ChromaDB over customer notes/objections) -> LiveCopilot (battle cards) ->
+  GroundingGuard (deterministic stock-code check, reuses `agent/grounding.py`).
+- **V3 Audio engine** (`copilot/audio_engine.py`): Groq `whisper-large-v3` via the existing `openai` SDK and the key
+  rotator; `[CLIENT]`/`[SALES_REP]` diarization heuristic (+ optional LLM classifier); simulated feed for demos/tests.
+- **V4 Streamlit tab** "Live Call Copilot": transcript left, battle cards right, "End call & persist" writes feedback
+  events (relational suppression rules) and notes (vector store).
+- **V4b Live call page** (approved by the human 2026-11-09 after reviewing V4, which was too slow and not live):
+  static page `app/live/` served by the API at `/live`, plus additive endpoints `GET /copilot/demo`,
+  `POST /copilot/transcribe` (raw audio body, one utterance), `POST /copilot/turn`, `POST /copilot/end_call`, all thin
+  wrappers over `copilot/call_session.py`. Two audio streams (rep = microphone, client = shared call tab), voice
+  detection in the browser, Whisper per utterance, cards re-run after each CLIENT line (one in flight, latest wins).
+  The Streamlit tab stays as a fallback and links to the page. DECISIONS D31-D33.
+- **V5 Docs + tests**: `test_key_rotator.py`, `test_graph.py`, `test_audio_engine.py`; README architecture diagram.

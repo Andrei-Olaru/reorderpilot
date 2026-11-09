@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 EVAL_RESULTS_DIR = PROJECT_ROOT / "eval" / "results"
+LIVE_UI_DIR = PROJECT_ROOT / "app" / "live"  # static live-call page served by the API at /live
 
 # Fixed, not environment-driven (SPEC section 6).
 RANDOM_SEED = 42
@@ -62,8 +63,17 @@ class Settings:
         return self.data_dir / "memory.db"
 
     @property
+    def chroma_dir(self) -> Path:
+        """ChromaDB vector index (derived from memory.db, safe to delete and rebuild)."""
+        return self.data_dir / "chroma"
+
+    @property
     def llm_cache_dir(self) -> Path:
         return self.data_dir / "llm_cache"
+
+    @property
+    def llm_cache_db(self) -> Path:
+        return self.data_dir / "llm_cache.db"
 
 
 def get_settings(env_file: Path | None = PROJECT_ROOT / ".env") -> Settings:

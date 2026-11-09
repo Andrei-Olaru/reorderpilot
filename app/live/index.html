@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReorderPilot Live</title>
+  <meta name="description" content="Live call copilot: listens to a sales call and suggests what to say next.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2310b981'/%3E%3Cpath d='M8 17h3l2-6 4 12 2-6h5' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="live.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M8 17h3l2-6 4 12 2-6h5"/></svg>
+      </span>
+      <span class="brand-name">ReorderPilot</span>
+      <span class="brand-tag">Live call copilot</span>
+    </div>
+    <div class="customer">
+      <label for="customer-input">Customer</label>
+      <input id="customer-input" list="customer-list" placeholder="ID, e.g. 14646" autocomplete="off" spellcheck="false">
+      <datalist id="customer-list"></datalist>
+    </div>
+    <div class="status">
+      <span class="chip" id="asof-chip" title="Simulated 'today' (AS_OF_DATE)">As of —</span>
+      <span class="chip" id="api-chip"><span class="dot"></span><span id="api-text">Connecting…</span></span>
+    </div>
+  </header>
+
+  <section class="callbar" aria-label="Call controls">
+    <div class="sources">
+      <div class="source" id="src-rep">
+        <div class="source-head">
+          <span class="who rep">You · rep</span>
+          <span class="source-state" id="rep-state">Microphone off</span>
+        </div>
+        <div class="meter" id="rep-meter" aria-hidden="true"></div>
+        <button class="btn ghost small" id="connect-mic" type="button">Connect microphone</button>
+      </div>
+      <div class="source" id="src-client">
+        <div class="source-head">
+          <span class="who client">Client · call audio</span>
+          <span class="source-state" id="client-state">Not shared</span>
+        </div>
+        <div class="meter" id="client-meter" aria-hidden="true"></div>
+        <button class="btn ghost small" id="connect-tab" type="button"
+                title="Pick the browser tab of your call (Meet, softphone, a recording) and tick 'Share tab audio'">
+          Share call tab audio</button>
+      </div>
+    </div>
+    <div class="call-actions">
+      <div class="timer" id="timer" aria-live="off">00:00</div>
+      <button class="btn primary" id="start-live" type="button" disabled>Start listening</button>
+      <button class="btn" id="start-demo" type="button" disabled>Play demo call</button>
+      <label class="toggle" title="Speak the demo call aloud with two browser voices">
+        <input type="checkbox" id="demo-voice" checked><span>Voices</span>
+      </label>
+      <button class="btn danger" id="end-call" type="button" hidden>End call</button>
+    </div>
+  </section>
+
+  <main class="grid">
+    <section class="panel" aria-labelledby="transcript-title">
+      <div class="panel-head">
+        <h2 id="transcript-title">Transcript</h2>
+        <span class="hint" id="transcript-hint">Click a line to swap its speaker</span>
+      </div>
+      <div class="transcript" id="transcript" aria-live="polite">
+        <div class="empty" id="transcript-empty">
+          <p class="empty-title">No call yet</p>
+          <p>Pick a customer, then connect your microphone and the call's tab audio, or play the demo call.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel copilot" aria-labelledby="copilot-title">
+      <div class="panel-head">
+        <h2 id="copilot-title">Say next</h2>
+        <span class="pill" id="copilot-status" data-state="idle">Idle</span>
+      </div>
+      <div class="context" id="context"></div>
+      <div class="cards" id="cards">
+        <ol class="steps">
+          <li><b>Pick a customer.</b> The copilot loads their re-order prediction and memory.</li>
+          <li><b>Connect audio.</b> Your mic is the rep; the shared call tab is the client.</li>
+          <li><b>Talk.</b> Each time the client finishes a sentence, fresh cards appear here.</li>
+        </ol>
+      </div>
+      <details class="why" id="why" hidden>
+        <summary>Why these cards</summary>
+        <div class="why-body">
+          <div class="trail" id="trail"></div>
+          <div class="removed" id="removed" hidden></div>
+          <h3>Memories used</h3>
+          <ul class="memories" id="memories"></ul>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <dialog id="end-dialog" aria-labelledby="end-title">
+    <form method="dialog" id="end-form">
+      <h2 id="end-title">End call &amp; save to memory</h2>
+      <p class="muted">Saved for <b id="end-customer"></b>. The note is the client's own words (edit freely); later calls
+        retrieve it from vector memory.</p>
+      <label for="end-note">Call note</label>
+      <textarea id="end-note" maxlength="500" rows="5" required></textarea>
+      <div class="counter"><span id="end-count">0</span>/500</div>
+      <fieldset>
+        <legend>Products the client declined</legend>
+        <div class="choices" id="end-declined"><span class="muted">No product suggestions in this call.</span></div>
+      </fieldset>
+      <label for="end-reason">Decline reason</label>
+      <select id="end-reason">
+        <option value="overstocked">Overstocked · hidden 30 days</option>
+        <option value="seasonal">Seasonal · hidden 30 days</option>
+        <option value="switched_supplier">Switched supplier · hidden 90 days</option>
+        <option value="price">Price · marks customer price-sensitive</option>
+        <option value="other">Other · recorded only</option>
+      </select>
+      <div class="result" id="end-result" hidden></div>
+      <div class="dialog-actions">
+        <button class="btn ghost" id="end-discard" type="button">Discard call</button>
+        <button class="btn ghost" id="end-cancel" type="button">Back to call</button>
+        <button class="btn primary" id="end-save" type="submit">Save to memory</button>
+        <button class="btn primary" id="end-done" type="button" hidden>Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toasts" id="toasts" aria-live="assertive"></div>
+  <script type="module" src="live.js"></script>
+</body>
+</html>

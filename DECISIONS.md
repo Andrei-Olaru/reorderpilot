@@ -200,3 +200,171 @@ Note: D18-D20 were written on 2026-11-03 by the memory track in parallel with D3
 - **Alternatives:** duplicate policy code in tools and API (drift risk); monkeypatching module globals in tests (brittle).
 - **Trade-off:** suppressed items are *flagged*, not removed, so they still take a slot in `top_k` (auditable, but the
   rep may see fewer actionable items).
+
+## D21 — v2 scope: LangGraph + ChromaDB + voice copilot (2026-11-09)
+- **Context:** the human asked for a multi-agent live-call copilot. SPEC section 3 had voice and vector DB out of scope,
+  and D7 chose a hand-written loop over LangGraph.
+- **Options:** (a) keep D7, build nodes as plain functions + TF-IDF memory (no new deps); (b) LangGraph + TF-IDF;
+  (c) LangGraph + ChromaDB as requested.
+- **Choice:** (c), approved by the human, recorded as SPEC section 17. D7 still describes v1 (`agent/loop.py`).
+- **Why:** the v2 goal is to show a real multi-agent graph and semantic retrieval, which are the requested skills.
+- **Trade-off:** two heavy dependencies (Chroma brings onnxruntime and downloads an embedding model on first use);
+  more moving parts to explain in an interview than a 150-line loop.
+
+## D22 — Key failover pool + SQLite response cache (2026-11-09)
+- **Context:** one Groq key = one point of failure; repeated questions in the app cost tokens every time.
+- **Options (pool):** (a) one key + backoff (v1); (b) round-robin every request; (c) stick to one key, fail over only
+  on 429/5xx/timeout with a per-key cooldown. **Options (cache):** (a) JSON file per request (v1, evals);
+  (b) `diskcache` package; (c) one SQLite table via stdlib `sqlite3`.
+- **Choice:** pool (c), cache (c). The eval JSON-file cache stays as it is so existing eval caches remain valid.
+- **Why:** (c) only switches keys when needed and never sleeps while a healthy key exists; SQLite needs no new
+  dependency and is one file that survives restarts. Measured cache hit: median 0.24 ms, p95 0.30 ms (n = 200, local).
+- **Trade-off:** Groq limits are per organization, so keys from the same org do not add quota; using several accounts
+  to dodge limits may break the provider's terms, so the pool is documented as resilience only. The cache key is the
+  full request, so only exact repeats hit (by design: a changed tool result changes the key, so data is never stale).
+
+## D23 — v2 graph shape: deterministic supervisor, chat delegates to the v1 loop, fallback cards (2026-11-09)
+- **Context:** milestone V2 needs a LangGraph orchestrator (SPEC section 17) without breaking the API and evals,
+  which use `agent/loop.py`.
+- **Options (router):** (a) LLM supervisor that picks the next agent; (b) deterministic router on input shape
+  (`[CLIENT]`/`[SALES_REP]` tags = live call). **Options (chat path):** (a) re-implement tool calling as graph nodes;
+  (b) one node that calls `loop.run_turn`. **Options (copilot output):** free text vs JSON cards.
+- **Choice:** router (b), chat (b), JSON cards with a deterministic fallback built from the prediction.
+- **Why:** the route is fully decided by the input, so an LLM call there would add cost, latency and a way to fail
+  for nothing; reusing the loop keeps one tested implementation of tool calling (v1 evals stay valid). JSON cards are
+  needed by the V4 UI (one box per card); the fallback means an LLM outage still shows model-backed cards.
+- **Trade-off:** the supervisor cannot handle mixed input (a chat question pasted with a transcript goes to live
+  call). The grounding guard drops a whole card that cites an invented code, so a mostly-good card can be lost.
+
+## D24 — ChromaDB as a derived index over SQLite memory (2026-11-09)
+- **Context:** V2 adds semantic retrieval of notes/objections. v1 memory (feedback rules + notes) lives in SQLite.
+- **Options:** (a) move notes into Chroma as the only store; (b) write to both stores on every save;
+  (c) SQLite stays the source of truth, Chroma is an index synced on read with stable ids (`note-<id>`, `fb-<id>`).
+- **Choice:** (c). Search filters on `customer_id` and `created_day <= as_of`; cosine distance; the embedding
+  function is injectable (tests use an offline word-hash fake, the app uses Chroma's default all-MiniLM-L6-v2).
+- **Why:** suppression rules must stay deterministic SQL (a vector search never decides "do not offer X"); upsert
+  with stable ids makes sync idempotent, and the index can be deleted and rebuilt at any time without data loss.
+  The `as_of` filter keeps the no-leakage rule for memory.
+- **Trade-off:** syncing on every live-call turn re-embeds that customer's notes (fine for tens of notes, not for
+  thousands; then sync on write instead). The default embedding model is an ~80 MB download on first use.
+
+## D25 — Audio transcription: Groq Whisper through the existing SDK and key pool (2026-11-09)
+- **Context:** milestone V3 turns a recorded call into a transcript the graph can read. No microphone capture.
+- **Options:** (a) local Whisper (`openai-whisper`/`faster-whisper`, needs torch or ctranslate2 + ffmpeg);
+  (b) Groq `whisper-large-v3` via the `openai` SDK already installed; (c) a diarizing cloud service (new vendor + key).
+- **Choice:** (b), `response_format="verbose_json"` for timestamped segments, every request through `GroqKeyRotator`.
+- **Why:** no new dependency, same failover as chat (429/5xx/timeout), and no audio decoding on our side: the file is
+  sent as raw bytes, so its size is checked with `stat()` before upload. Limits checked on 2026-11-09: 25 MB free
+  tier / 100 MB dev tier (`GROQ_AUDIO_MAX_MB`), formats flac/mp3/mp4/mpeg/mpga/m4a/ogg/wav/webm, 10 s minimum billing.
+  A too-large or unsupported file fails locally with an `AudioFileError` saying how to fix it; nothing is uploaded.
+- **Trade-off:** the limit uses decimal MB (25,000,000 bytes), slightly stricter than Groq may be, so a 25.5 MiB file
+  is refused locally instead of failing remotely. No automatic splitting of long calls (would need an audio library).
+  Audio leaves the machine (to Groq); fine for the public demo, a privacy question for real customer calls.
+
+## D26 — Speaker labels: keyword + turn-taking heuristic, LLM classifier behind a flag (2026-11-09)
+- **Context:** Whisper returns text and timestamps but not who spoke; the graph needs `[CLIENT]`/`[SALES_REP]` lines.
+- **Options:** (a) acoustic diarization (pyannote: torch, Hugging Face token, GPU-hungry); (b) rules over the text and
+  timestamps; (c) one LLM call that labels all segments; (d) (b) by default + (c) behind `--llm-diarize`.
+- **Choice:** (d). Rules in order: keyword cue ("your prices", "we're overstocked" -> client; "let me check",
+  "calling from" -> rep); first segment = the rep (they place the call); after a question or a pause >= 1.0 s the other
+  person speaks; otherwise the same person continues. The LLM reply must be JSON with exactly one valid label per
+  segment, otherwise the heuristic is used (`method = heuristic_fallback`). Consecutive same-speaker segments merge.
+- **Why:** offline, free, testable and explainable in one sentence; the LLM option costs one call when accuracy matters.
+- **Measured (n = 1 synthetic call, 6 segments, Windows TTS with two voices, `scripts/make_demo_call.ps1`):** heuristic
+  5/6 segments correct (a rep line after a 0.86 s pause with no cue word was given to the client); LLM 6/6. One file is
+  a smoke test, not a benchmark. I did not tune the 1.0 s threshold to this file (that would be overfitting to it).
+- **Trade-off:** the heuristic is English-only and fragile on real calls (people pause mid-sentence, cues are sparse);
+  the LLM sees the transcript text (same privacy note as D25) and can still be wrong on very short segments.
+
+## D27 — Simulated call feed and `live_session` callback (2026-11-09)
+- **Context:** demos and tests need a "live" call without audio, a microphone or the network.
+- **Options:** (a) a fixture file of transcript lines; (b) a generator with an injectable `sleep`, plus a
+  `live_session(feed, on_client_line)` that re-runs a callback (the graph) after each CLIENT line.
+- **Choice:** (b). The copilot re-runs on the whole transcript so far, only after client lines (that is when the rep
+  needs help), so the six-line demo costs three LLM calls.
+- **Why:** the generator matches how V4's Streamlit tab will receive lines; injecting `sleep` keeps tests instant;
+  the callback keeps the audio engine independent of LangGraph (no import of the graph at module level).
+- **Trade-off:** re-running the full graph per client line repeats the prediction and memory search each time
+  (cheap here; for long calls cache the prediction per call).
+
+## D28 — Live Call Copilot runs in the Streamlit process, behind one helper module (2026-11-09)
+- **Context:** milestone V4 needs the graph, the audio engine and memory writes in the UI. Until now the UI was a pure
+  HTTP client of the API, and the human asked not to change API contracts without a proposal.
+- **Options:** (a) the tab calls the graph/audio/store in-process through a small module (`copilot/call_session.py`);
+  (b) new API endpoints (`/copilot/turn`, `/copilot/transcribe`, `/copilot/end_call`) and keep the UI thin.
+- **Choice:** (a), approved by the human ("simple and good").
+- **Why:** no API contract change, no audio upload over HTTP (FastAPI needs `python-multipart` for that, which is not
+  in `requirements.txt`), less code to explain. The boundary is the module, not HTTP: each function there could become
+  a ~5-line endpoint later without a rewrite. The backend is built only when a call starts, so the other tabs never
+  load the model or Chroma. Docker already mounts `/data` and `/app/artifacts` into the `ui` service.
+- **Trade-off:** the UI process now loads the model and the Chroma embedding model (~80 MB) for this tab; the "UI shows
+  exactly what the API sees" claim holds for the chat and memory tabs only. Switch to (b) when several users share one
+  deployment or the UI is deployed apart from the data.
+
+## D29 — One stepper for all three call inputs, built on `live_session` (2026-11-09)
+- **Context:** the tab has three inputs (simulated feed, uploaded audio, pasted transcript) and must re-run the graph
+  after each CLIENT line only.
+- **Options:** (a) separate logic per input; (b) every input produces a list of lines, which is replayed through
+  `live_session(simulated_feed(lines), runner)` with "Next line" / "Play to end" buttons.
+- **Choice:** (b). The generator is kept in `st.session_state` between reruns.
+- **Why:** one code path to test; it reuses the V3 functions unchanged, so "only after CLIENT lines" is the same rule
+  the CLI uses. The runner turns any error into `{"error": ...}` so one failed turn shows an `st.error` and the call
+  continues (a generator that raises is finished for good).
+- **Trade-off:** an uploaded call is transcribed in full first, then replayed (no real-time streaming); a generator in
+  session state is not serializable, so it would not survive a server restart (fine for a demo).
+
+## D30 — Call note is pre-filled from the client's own words, not summarised by the LLM (2026-11-09)
+- **Context:** "End call & persist" saves a note to memory; later calls retrieve it and show it to the copilot.
+- **Options:** (a) an LLM summary of the call; (b) a deterministic note: date + the client's lines verbatim (max 500
+  chars), editable by the rep before saving.
+- **Choice:** (b). Declined products are chosen from the latest unsuppressed recommendations and saved as `declined`
+  feedback events through `store.record_feedback`, so the v1 suppression policy applies unchanged.
+- **Why:** an LLM summary could invent facts (see the V3 open item: a card once promised "on-time delivery"), and a
+  saved invention would come back in every later call as "memory". Verbatim client text is grounded by construction.
+- **Trade-off:** notes are longer and less polished than a summary; long calls are cut at 500 chars (the store limit).
+  After saving, the tab syncs Chroma from SQLite and reports whether the note ranks in the top 3 for this call's client
+  lines, which is the same search the next call runs.
+
+## D31 — Real-time copilot as a dedicated page + `/copilot` API endpoints (2026-11-09)
+- **Context:** the human tried the V4 Streamlit tab and found it slow and not what they meant: they want the copilot
+  to *hear* a call and suggest what to say in real time. Measured cause: every click re-ran the whole Streamlit
+  script, and the client's line only appeared after the LLM finished (LLM 1.2-3.7 s + up to 2.4 s client-side
+  throttle + ~0.6 s data/Chroma + ~0.3 s API calls of the other tabs). Streamlit cannot keep a microphone stream open
+  or push updates.
+- **Options:** (a) polish the Streamlit tab (fragments, background thread, push-to-record `st.audio_input`);
+  (b) a dedicated HTML/CSS/JS page served by FastAPI + 4 additive endpoints; (c) a streaming speech-to-text vendor
+  (word-by-word captions; new account, key, cost, dependencies).
+- **Choice:** (b), approved by the human. D28 still describes the Streamlit tab, which stays as a fallback.
+- **Why:** the browser can listen continuously and update the page without reloading; the endpoints are thin wrappers
+  over `call_session.py`, so there is still one implementation. No new Python dependency (raw audio request body
+  instead of multipart upload), no npm/build step (plain ES module).
+- **Trade-off:** a second UI to maintain (HTML/JS is not covered by pytest beyond "the files are served"; the voice
+  detection + WAV encoder were checked by running the page's own code in Node on the demo call); "real time" means per
+  utterance, not per word. **Measured (one run, local API + Groq, demo call, customer 14646):** transcription
+  0.21-0.64 s per utterance; cards 1.6-2.6 s cold, 0.7-0.8 s warm after the client's line.
+
+## D32 — Two audio streams, energy-based voice detection in the browser, 16 kHz WAV per utterance (2026-11-09)
+- **Context:** the live page must know who speaks and send Whisper short pieces of speech.
+- **Options (speaker):** one mic + text heuristic (D26); push-to-talk; two streams (rep = microphone, client = the
+  call's browser tab via screen-share with "share tab audio"). **Options (cutting audio):** MediaRecorder webm chunks;
+  raw samples (AudioWorklet) + our own WAV encoder. **Options (voice detection):** a neural VAD (e.g. Silero, needs an
+  ONNX runtime in the browser = new dependency); RMS energy above an adaptive noise floor.
+- **Choice:** two streams (one mic + guessing as fallback, labelled `AUTO`); raw samples + WAV; energy detection
+  (start after ~85 ms above 3x the noise floor, end after a 700 ms pause, cut at 15 s, keep 300 ms of pre-roll).
+- **Why:** two streams give exact speaker labels with no model; WAV can be cut anywhere and include the pre-roll
+  (webm chunks after the first are not playable on their own); energy detection is 20 lines and explainable.
+  While the client speaks (and 300 ms after) the rep mic is ignored, so call audio leaking from the speakers into the
+  mic is not transcribed twice. Whole-utterance phrases Whisper invents on silence ("Thank you.") are dropped.
+- **Trade-off:** energy detection also fires on loud noise and splits a turn at long mid-sentence pauses (demo file:
+  9 utterances for 6 lines); headphones are still recommended. Tab audio sharing works in Chromium browsers (Chrome,
+  Edge), not in every browser. Each utterance is one Whisper request (Groq free tier: 20 requests/min, 10 s minimum
+  billing per request).
+
+## D33 — Card refresh: one request in flight, latest transcript wins (2026-11-09)
+- **Context:** client lines can arrive faster than the copilot answers.
+- **Options:** (a) one request per client line in parallel; (b) debounce (wait for quiet); (c) one request at a time,
+  and when it returns run once more with the newest transcript if lines arrived meanwhile.
+- **Choice:** (c). Old cards stay visible but dimmed while new ones are computed.
+- **Why:** (a) wastes LLM calls and answers can arrive out of order; (b) adds delay on every line. (c) never shows
+  stale-over-fresh cards and costs at most one extra call per burst.
+- **Trade-off:** after a burst the newest cards arrive one LLM round trip later than they would with (a).
