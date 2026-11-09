@@ -10,6 +10,7 @@ from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
 from reorderpilot.agent.graph import (
     NO_CUSTOMER_ANSWER,
+    diagram,
     fallback_cards,
     parse_cards,
     parse_transcript,
@@ -76,6 +77,12 @@ def test_parse_transcript_detects_speaker_tags_only():
     assert parse_transcript(LIVE) == ["[SALES_REP] Hi, anything for the next order?",
                                       "[CLIENT] Delivery was late again and your prices went up."]
     assert parse_transcript("Brief me on customer A") == []          # plain chat message
+
+
+def test_diagram_is_plain_mermaid_with_both_branches(ctx):
+    text = diagram(ctx)
+    assert text.startswith("graph TD;") and "<p>" not in text and "classDef" not in text   # renders anywhere
+    assert "supervisor -.-> chat_agent" in text and "supervisor -.-> ml_prediction" in text  # dotted = conditional
 
 
 def test_chat_message_routes_through_v1_loop(ctx, memory):

@@ -225,6 +225,11 @@ def run_graph(message: str, llm: ChatModel, ctx: tools.ToolContext, memory: Vect
                              "trail": []})
 
 
+def diagram(ctx: tools.ToolContext) -> str:
+    """The graph as plain Mermaid text (no front-matter, HTML labels or styles, so any Mermaid renderer accepts it)."""
+    return build_graph(llm=None, ctx=ctx).get_graph().draw_mermaid(with_styles=False)  # type: ignore[arg-type]
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI: print the graph diagram, or run one chat message / live-call transcript against the real data + LLM."""
     p = argparse.ArgumentParser(description="ReorderPilot v2 LangGraph copilot")
@@ -243,7 +248,7 @@ def main(argv: list[str] | None = None) -> None:
     settings = get_settings()
     ctx = tools.ToolContext(as_of=settings.as_of_date, db_path=settings.memory_db_path)
     if a.diagram:
-        print(build_graph(llm=None, ctx=ctx).get_graph().draw_mermaid())  # type: ignore[arg-type]
+        print(diagram(ctx))
         return
     if a.note:
         if not a.customer:
