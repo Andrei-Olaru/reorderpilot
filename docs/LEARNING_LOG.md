@@ -251,3 +251,24 @@
 - **Interview Q:** "Why not rotate keys on every request to spread load?" → Rate limits are per organization, so it
   would not add quota; it would only make failures harder to trace. Failover on error gives resilience, which is
   the real goal.
+
+## v2 / V2: LangGraph multi-agent graph + ChromaDB vector memory
+- **What I built:** `agent/graph.py`, a LangGraph *state graph*: a flowchart where each box (node) is a Python
+  function that reads a shared dict (the state) and returns only the keys it changes. A supervisor sends chat
+  messages to the old v1 loop and live-call transcripts through ML prediction -> vector memory -> live copilot ->
+  grounding guard. `memory/vector_store.py` wraps ChromaDB, a *vector database* (it stores text as lists of numbers
+  called embeddings, so "delivery was late" can find "parcel arrived 5 days late" even without shared words).
+- **Why this way:** the router is plain code (`[CLIENT]` tags = live call) because the input already tells us the
+  route; an LLM there would only add cost and failure risk. Chat reuses `run_turn`, so v1 evals stay valid.
+- **SQLite is still the truth:** Chroma is only an index rebuilt from SQLite with stable ids, so syncing twice adds
+  nothing (*idempotent*). Suppression rules stay in SQL, because a fuzzy search must never decide what to hide.
+- **No leakage:** each memory stores its simulated day as a number (20111101) and search keeps only days <= as_of.
+- **Reducer:** `trail` is declared with `operator.add`, so each node appends its name instead of overwriting; tests
+  assert the exact route, e.g. `supervisor, ml_prediction, vector_memory, live_copilot, grounding_guard`.
+- **Measured (one real run, customer 14646):** the query "your last delivery was really late" ranked the delivery
+  note first (cosine distance 0.35) above the Christmas note (0.74); 2 cards, 0 codes removed.
+- **What could go wrong:** the LLM may return prose instead of JSON -> deterministic fallback cards from the model;
+  the default embedding model downloads ~80 MB on first use; sync re-embeds notes every turn (fine at small scale).
+- **Interview Q:** "Why LangGraph if your router is an if-statement?" -> The graph makes the multi-step flow explicit,
+  inspectable (Mermaid diagram, LangSmith traces per node) and easy to extend with new branches; the routing logic
+  itself should stay as simple as the problem allows.

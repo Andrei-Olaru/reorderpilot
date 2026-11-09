@@ -17,6 +17,9 @@ httpx==0.28.1
 openai==3.42.1
 langsmith==0.14.17
 rapidfuzz==3.14.6
+# v2 orchestrator (SPEC section 17, D21)
+langgraph==1.2.20
+chromadb==1.5.9
 # Config + eval
 python-dotenv==1.2.4
 pyyaml==6.0.3

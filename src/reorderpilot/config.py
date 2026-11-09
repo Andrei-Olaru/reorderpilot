@@ -62,6 +62,11 @@ class Settings:
         return self.data_dir / "memory.db"
 
     @property
+    def chroma_dir(self) -> Path:
+        """ChromaDB vector index (derived from memory.db, safe to delete and rebuild)."""
+        return self.data_dir / "chroma"
+
+    @property
     def llm_cache_dir(self) -> Path:
         return self.data_dir / "llm_cache"
 

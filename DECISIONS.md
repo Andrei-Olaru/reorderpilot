@@ -222,3 +222,28 @@ Note: D18-D20 were written on 2026-11-03 by the memory track in parallel with D3
 - **Trade-off:** Groq limits are per organization, so keys from the same org do not add quota; using several accounts
   to dodge limits may break the provider's terms, so the pool is documented as resilience only. The cache key is the
   full request, so only exact repeats hit (by design: a changed tool result changes the key, so data is never stale).
+
+## D23 — v2 graph shape: deterministic supervisor, chat delegates to the v1 loop, fallback cards (2026-11-09)
+- **Context:** milestone V2 needs a LangGraph orchestrator (SPEC section 17) without breaking the API and evals,
+  which use `agent/loop.py`.
+- **Options (router):** (a) LLM supervisor that picks the next agent; (b) deterministic router on input shape
+  (`[CLIENT]`/`[SALES_REP]` tags = live call). **Options (chat path):** (a) re-implement tool calling as graph nodes;
+  (b) one node that calls `loop.run_turn`. **Options (copilot output):** free text vs JSON cards.
+- **Choice:** router (b), chat (b), JSON cards with a deterministic fallback built from the prediction.
+- **Why:** the route is fully decided by the input, so an LLM call there would add cost, latency and a way to fail
+  for nothing; reusing the loop keeps one tested implementation of tool calling (v1 evals stay valid). JSON cards are
+  needed by the V4 UI (one box per card); the fallback means an LLM outage still shows model-backed cards.
+- **Trade-off:** the supervisor cannot handle mixed input (a chat question pasted with a transcript goes to live
+  call). The grounding guard drops a whole card that cites an invented code, so a mostly-good card can be lost.
+
+## D24 — ChromaDB as a derived index over SQLite memory (2026-11-09)
+- **Context:** V2 adds semantic retrieval of notes/objections. v1 memory (feedback rules + notes) lives in SQLite.
+- **Options:** (a) move notes into Chroma as the only store; (b) write to both stores on every save;
+  (c) SQLite stays the source of truth, Chroma is an index synced on read with stable ids (`note-<id>`, `fb-<id>`).
+- **Choice:** (c). Search filters on `customer_id` and `created_day <= as_of`; cosine distance; the embedding
+  function is injectable (tests use an offline word-hash fake, the app uses Chroma's default all-MiniLM-L6-v2).
+- **Why:** suppression rules must stay deterministic SQL (a vector search never decides "do not offer X"); upsert
+  with stable ids makes sync idempotent, and the index can be deleted and rebuilt at any time without data loss.
+  The `as_of` filter keeps the no-leakage rule for memory.
+- **Trade-off:** syncing on every live-call turn re-embeds that customer's notes (fine for tens of notes, not for
+  thousands; then sync on write instead). The default embedding model is an ~80 MB download on first use.
