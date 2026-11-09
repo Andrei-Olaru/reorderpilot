@@ -247,3 +247,42 @@ Note: D18-D20 were written on 2026-11-03 by the memory track in parallel with D3
   The `as_of` filter keeps the no-leakage rule for memory.
 - **Trade-off:** syncing on every live-call turn re-embeds that customer's notes (fine for tens of notes, not for
   thousands; then sync on write instead). The default embedding model is an ~80 MB download on first use.
+
+## D25 — Audio transcription: Groq Whisper through the existing SDK and key pool (2026-11-09)
+- **Context:** milestone V3 turns a recorded call into a transcript the graph can read. No microphone capture.
+- **Options:** (a) local Whisper (`openai-whisper`/`faster-whisper`, needs torch or ctranslate2 + ffmpeg);
+  (b) Groq `whisper-large-v3` via the `openai` SDK already installed; (c) a diarizing cloud service (new vendor + key).
+- **Choice:** (b), `response_format="verbose_json"` for timestamped segments, every request through `GroqKeyRotator`.
+- **Why:** no new dependency, same failover as chat (429/5xx/timeout), and no audio decoding on our side: the file is
+  sent as raw bytes, so its size is checked with `stat()` before upload. Limits checked on 2026-11-09: 25 MB free
+  tier / 100 MB dev tier (`GROQ_AUDIO_MAX_MB`), formats flac/mp3/mp4/mpeg/mpga/m4a/ogg/wav/webm, 10 s minimum billing.
+  A too-large or unsupported file fails locally with an `AudioFileError` saying how to fix it; nothing is uploaded.
+- **Trade-off:** the limit uses decimal MB (25,000,000 bytes), slightly stricter than Groq may be, so a 25.5 MiB file
+  is refused locally instead of failing remotely. No automatic splitting of long calls (would need an audio library).
+  Audio leaves the machine (to Groq); fine for the public demo, a privacy question for real customer calls.
+
+## D26 — Speaker labels: keyword + turn-taking heuristic, LLM classifier behind a flag (2026-11-09)
+- **Context:** Whisper returns text and timestamps but not who spoke; the graph needs `[CLIENT]`/`[SALES_REP]` lines.
+- **Options:** (a) acoustic diarization (pyannote: torch, Hugging Face token, GPU-hungry); (b) rules over the text and
+  timestamps; (c) one LLM call that labels all segments; (d) (b) by default + (c) behind `--llm-diarize`.
+- **Choice:** (d). Rules in order: keyword cue ("your prices", "we're overstocked" -> client; "let me check",
+  "calling from" -> rep); first segment = the rep (they place the call); after a question or a pause >= 1.0 s the other
+  person speaks; otherwise the same person continues. The LLM reply must be JSON with exactly one valid label per
+  segment, otherwise the heuristic is used (`method = heuristic_fallback`). Consecutive same-speaker segments merge.
+- **Why:** offline, free, testable and explainable in one sentence; the LLM option costs one call when accuracy matters.
+- **Measured (n = 1 synthetic call, 6 segments, Windows TTS with two voices, `scripts/make_demo_call.ps1`):** heuristic
+  5/6 segments correct (a rep line after a 0.86 s pause with no cue word was given to the client); LLM 6/6. One file is
+  a smoke test, not a benchmark. I did not tune the 1.0 s threshold to this file (that would be overfitting to it).
+- **Trade-off:** the heuristic is English-only and fragile on real calls (people pause mid-sentence, cues are sparse);
+  the LLM sees the transcript text (same privacy note as D25) and can still be wrong on very short segments.
+
+## D27 — Simulated call feed and `live_session` callback (2026-11-09)
+- **Context:** demos and tests need a "live" call without audio, a microphone or the network.
+- **Options:** (a) a fixture file of transcript lines; (b) a generator with an injectable `sleep`, plus a
+  `live_session(feed, on_client_line)` that re-runs a callback (the graph) after each CLIENT line.
+- **Choice:** (b). The copilot re-runs on the whole transcript so far, only after client lines (that is when the rep
+  needs help), so the six-line demo costs three LLM calls.
+- **Why:** the generator matches how V4's Streamlit tab will receive lines; injecting `sleep` keeps tests instant;
+  the callback keeps the audio engine independent of LangGraph (no import of the graph at module level).
+- **Trade-off:** re-running the full graph per client line repeats the prediction and memory search each time
+  (cheap here; for long calls cache the prediction per call).

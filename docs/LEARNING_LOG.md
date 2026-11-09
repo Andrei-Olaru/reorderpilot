@@ -272,3 +272,24 @@
 - **Interview Q:** "Why LangGraph if your router is an if-statement?" -> The graph makes the multi-step flow explicit,
   inspectable (Mermaid diagram, LangSmith traces per node) and easy to extend with new branches; the routing logic
   itself should stay as simple as the problem allows.
+
+## v2 / V3: Audio engine (transcription + speaker labels + simulated feed)
+- **What I built:** `copilot/audio_engine.py` turns a recorded sales call into lines like `[CLIENT] your prices went up`
+  that the LangGraph copilot already understands. Three steps: check the file, transcribe it with Groq's
+  `whisper-large-v3` (a speech-to-text model), then decide who said each piece (*diarization* = "who spoke when").
+- **Reuse:** the audio request goes through the same `GroqKeyRotator` as chat, so a rate-limited key (HTTP 429) fails
+  over to the next key. The `openai` SDK talks to Groq because Groq copies OpenAI's API shape; no new package.
+- **Fail early:** Groq accepts at most 25 MB on the free tier and 9 formats. The size is checked on disk *before*
+  uploading, so a 40 MB file gets a clear "compress or split it" error instead of a slow upload and a cryptic HTTP 413.
+- **Speaker heuristic:** Whisper writes down words but not who said them. Rules: cue words ("your prices" = client,
+  "let me check" = rep), the rep speaks first (they place the call), a question or a 1-second pause hands the turn over.
+  `--llm-diarize` asks the chat LLM instead; if its reply is not valid JSON with one label per piece, the rules are used.
+- **Measured (one synthetic two-voice call made with Windows text-to-speech):** rules got 5 of 6 pieces right, the
+  LLM 6 of 6. One file only proves it runs; it is not an accuracy benchmark.
+- **Simulated feed:** a scripted call that yields one line at a time (a *generator*), so demos and tests need no audio
+  or network. After each client line the graph re-runs and prints fresh battle cards.
+- **What could go wrong:** real people pause mid-sentence and rarely use cue words, so the rules mislabel more; audio is
+  sent to Groq (privacy); calls over 25 MB must be split by hand; anything under 10 s is billed as 10 s.
+- **Interview Q:** "Why not real acoustic diarization (voice fingerprints)?" -> Tools like pyannote need PyTorch, a
+  Hugging Face token and ideally a GPU. For a demo that only needs two roles, text rules + an optional LLM check are
+  free, testable and easy to explain; I would switch if measured accuracy on real calls were too low.
